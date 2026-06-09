@@ -234,8 +234,6 @@ export class LpMomentumEngine extends BaseEngine {
     const growth1h = (new1h / holders.length) * 100;
     const growth4h = (new4h / holders.length) * 100;
 
-    if (growth1h < 0 && growth4h < 0) return 0;
-
     const weightedGrowth = growth5m * 0.3 + growth15m * 0.3 + growth1h * 0.25 + growth4h * 0.15;
     const baseScore = Math.min(weightedGrowth * 5, 60);
     const volumeBonus = new1h > 10 ? 20 : new1h > 5 ? 10 : 0;

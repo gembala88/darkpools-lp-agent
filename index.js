@@ -50,6 +50,9 @@ if (isMain) {
     log("startup_warn", `process.cwd() differs from repo root — use "npm run pm2:start" (not "pm2 start index.js" from another directory)`);
   }
   log("startup", `Mode: ${process.env.DRY_RUN === "true" ? "DRY RUN" : "LIVE"}`);
+  if (process.env.DRY_RUN !== "true" && process.env.ENABLE_REAL_DEPLOYMENT !== "true") {
+    log("startup_warn", "REAL DEPLOYMENT BLOCKED: Set ENABLE_REAL_DEPLOYMENT=true to enable live trading.");
+  }
   log("startup", `Model: ${process.env.LLM_MODEL || "hermes-3-405b"}`);
   ensureAgentId();
   bootstrapHiveMind().catch((error) => log("hivemind_warn", `Bootstrap failed: ${error.message}`));

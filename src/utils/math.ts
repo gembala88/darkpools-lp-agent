@@ -50,9 +50,15 @@ export function calculateVelocity(values: number[], timeUnit: number): number[] 
   return velocity;
 }
 
-export function calculateAcceleration(velocities: number[], timeUnit: number): number[] {
-  if (velocities.length < 2) return [0];
-  return calculateVelocity(velocities, timeUnit);
+export function calculateAcceleration(values: number[], timeUnit: number): number[] {
+  if (values.length < 3) return values.map(() => 0);
+  const result: number[] = [0, 0];
+  for (let i = 2; i < values.length; i++) {
+    const v1 = (values[i - 1] - values[i - 2]) / timeUnit;
+    const v2 = (values[i] - values[i - 1]) / timeUnit;
+    result.push((v2 - v1) / timeUnit);
+  }
+  return result;
 }
 
 export function normalize(value: number, min: number, max: number): number {

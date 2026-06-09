@@ -5,7 +5,6 @@ import { PositionSizingEngine } from '../engines/positionSizingEngine.js';
 import { NoDeployFilterV2, FilterCriteria } from '../filters/noDeployFilterV2.js';
 import { Logger } from '../logging/logger.js';
 import { TelemetryService } from '../telemetry/telemetryService.js';
-import { repositories } from '../repositories/index.js';
 import { aiEngines } from '../ai/index.js';
 import type { AIWeights } from '../ai/dynamicWeightEngine.js';
 

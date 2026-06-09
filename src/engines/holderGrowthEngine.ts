@@ -28,10 +28,6 @@ export class HolderGrowthEngine extends BaseEngine {
     const growth1h = holders.length > 0 ? (recent1h.length / holders.length) * 100 : 0;
     const growth4h = holders.length > 0 ? (recent4h.length / holders.length) * 100 : 0;
 
-    if (growth1h < 0 && growth4h < 0) {
-      return { score: 0, signal: 'bearish', reason: 'Negative holder growth - REJECTED', metadata };
-    }
-
     const growthScore = (Math.max(0, growth1h) * 0.6) + (Math.max(0, growth4h) * 0.4);
     const totalBonus = Math.min(holders.length / 100, 20);
     const score = this.normalizeScore(Math.min(growthScore + totalBonus, 100));

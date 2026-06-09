@@ -1,10 +1,7 @@
 import { BaseEngine } from './baseEngine.js';
 import type { EngineResult } from './baseEngine.js';
 import { TxMomentumEngine } from './txMomentumEngine.js';
-import { BuySellPressureEngine } from './buySellPressureEngine.js';
-import { TraderGrowthEngine } from './traderGrowthEngine.js';
 import { LiquidityStabilityEngine } from './liquidityStabilityEngine.js';
-import { FeeVelocityEngine } from './feeVelocityEngine.js';
 import { SmartMoneyConvictionEngine } from './smartMoneyConvictionEngine.js';
 import { CapitalInflowEngine } from './capitalInflowEngine.js';
 import { HolderGrowthEngine } from './holderGrowthEngine.js';
@@ -59,10 +56,7 @@ export class LpAlphaScoreEngine extends BaseEngine {
 
   private engines: Record<string, BaseEngine> = {
     txMomentum: new TxMomentumEngine(),
-    buySellPressure: new BuySellPressureEngine(),
-    traderGrowth: new TraderGrowthEngine(),
     liquidityStability: new LiquidityStabilityEngine(),
-    feeVelocity: new FeeVelocityEngine(),
     smartMoney: new SmartMoneyConvictionEngine(),
     capitalInflow: new CapitalInflowEngine(),
     holderGrowth: new HolderGrowthEngine(),

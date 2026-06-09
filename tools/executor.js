@@ -839,6 +839,14 @@ async function runSafetyChecks(name, args) {
         };
       }
 
+      // Require explicit ENABLE_REAL_DEPLOYMENT for real transactions
+      if (process.env.DRY_RUN !== "true" && process.env.ENABLE_REAL_DEPLOYMENT !== "true") {
+        return {
+          pass: false,
+          reason: "Real deployment is disabled. Set ENABLE_REAL_DEPLOYMENT=true in .env and confirm at startup to enable live trading.",
+        };
+      }
+
       // Check SOL balance
       if (process.env.DRY_RUN !== "true") {
         const balance = await getWalletBalances();

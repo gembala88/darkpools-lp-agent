@@ -240,6 +240,98 @@ Use `/thresholds` to see current values alongside performance stats.
 
 ---
 
+## AI Intelligence Layer
+
+Meridian includes an **AI Intelligence Layer** — a multi-engine decision system that evaluates pools, detects market regimes, and governs deployment decisions. All engines run locally; no external AI APIs are called for market analysis.
+
+### Architecture
+
+```
+Raw Pool Data → 7 AI Engines (parallel) → Dynamic Weight → AI Analyst → Multi-Agent Consensus → Chief AI → NoDeployFilter
+```
+
+### Market Regime Engine
+
+Classifies live market conditions into 6 regimes using on-chain data (volume, buy pressure, tx velocity):
+
+| Regime | Meaning |
+|---|---|
+| EUPHORIA | Extreme buy pressure with high volume |
+| PANIC | High sell volume with panic selling |
+| ACCUMULATION | Consistent buying pressure with high tx velocity |
+| DISTRIBUTION | Distribution pattern with sell pressure |
+| TRENDING_BULLISH | Moderate buy bias with healthy volume |
+| TRENDING_BEARISH | Sell bias with significant volume |
+| RANGING | Active market or low activity with no clear directional bias |
+
+Calibrated for Meteora DLMM pools.
+
+### Pool Activity Engine
+
+Measures pool health using transaction velocity:
+
+- **VERY_ACTIVE** (txVelocity > 6) — high-frequency trading
+- **ACTIVE** (txVelocity > 2) — normal activity
+- **NORMAL** (txVelocity > 0.5) — low but alive
+- **LOW / DEAD** — stale or abandoned pools
+
+### Accumulation Detector
+
+Detects smart money buying pressure before price moves:
+
+- Analyzes holder growth, buy/sell ratio, volume trends
+- Outputs bullish/bearish/neutral signal with confidence score
+- Used to validate regime classification
+
+### Whale Exit Probability Engine
+
+Estimates probability of top holders selling:
+
+- Multi-path detection: concentration, volume, sell pressure, sell ratio
+- Gated by pool activity — dead pools never trigger whale alerts
+- False positive rate < 20% in live validation
+
+### Chief AI
+
+Final decision authority. Combines all engine outputs into a single action:
+
+| Action | Condition |
+|---|---|
+| DEPLOY | All engines bullish, confidence > 60%, no warnings |
+| SIMULATE | Confidence >= 40%, ambiguous signals |
+| SKIP | Bearish signals, high whale risk, or low confidence |
+| WATCHLIST | Neutral signals worth monitoring |
+
+Chief AI preserves conservative deployment bias (SKIP > DEPLOY).
+
+### Paper Trading Workflow
+
+Paper mode is the default and only supported mode for RC1:
+
+1. Set `DRY_RUN=true` in `.env` or `"dryRun": true` in `user-config.json`
+2. Run `npm run dev` — all transactions are simulated
+3. Validate with: `npx tsx scripts/paper_trading_sim.ts`
+4. Live validation: `npx tsx scripts/live_paper_validation.ts`
+
+**Real deployment requires all of:**
+- `DRY_RUN` not set to `"true"`
+- `ENABLE_REAL_DEPLOYMENT=true` in `.env`
+- Manual confirmation at startup
+- Wallet with sufficient SOL
+
+### Validation Results
+
+| Validation | Result |
+|---|---|
+| Fixed scenarios (42 checks) | 100% |
+| Live randomized (360 evaluations) | 84.7–100% engine accuracy |
+| False positive rate | < 20% |
+| Readiness score | 96/100 |
+
+See `FINAL_AUDIT.md`, `LIVE_VALIDATION_24H.md`, `RC1_READINESS_REPORT.md` for full details.
+
+---
+
 ## HiveMind
 
 Meridian includes a collective intelligence layer called **HiveMind**. By default it uses Agent Meridian at `https://api.agentmeridian.xyz` with the built-in public key, so agents can register, pull shared lessons/presets, and push learning events without a separate registration flow.
