@@ -8,6 +8,7 @@ import { log } from "./logger.js";
 import { getMyPositions, closePosition, getActiveBin } from "./tools/dlmm.js";
 import { getWalletBalances } from "./tools/wallet.js";
 import { getTopCandidates } from "./tools/screening.js";
+import { LPIntelligenceService } from "./dist/services/lpIntelligenceService.js";
 import { formatGmgnCandidateForPrompt } from "./tools/gmgn.js";
 import { config, reloadScreeningThresholds, computeDeployAmount } from "./config.js";
 import { evolveThresholds, getPerformanceSummary } from "./lessons.js";
@@ -568,6 +569,19 @@ export async function runScreeningCycle({ silent = false } = {}) {
       passing.map(({ pool }) => getActiveBin({ pool_address: pool.pool }))
     );
 
+    // AI Intelligence Layer pool evaluation
+    const lpIntelligence = new LPIntelligenceService();
+    const aiEvals = await Promise.allSettled(passing.map(({ pool }) =>
+      lpIntelligence.evaluatePool(pool.pool, pool.base?.mint || pool.base_mint, {
+        tokenName: pool.name, tokenSymbol: pool.symbol,
+        marketCap: pool.mcap, tokenAgeHours: pool.token_age_hours,
+      }).catch(() => null)
+    ));
+    const aiMap = {};
+    for (const r of aiEvals) {
+      if (r.status === 'fulfilled' && r.value) aiMap[r.value.poolAddress] = r.value;
+    }
+
     // Build compact candidate blocks
     const candidateBlocks = passing.map(({ pool, sw, n, ti, mem }, i) => {
       const botPct = ti?.audit?.bot_holders_pct ?? "?";
@@ -591,6 +605,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
           activeBin != null ? `  active_bin: ${activeBin}` : null,
           n?.narrative ? `  narrative_untrusted: ${sanitizeUntrustedPromptText(n.narrative, 500)}` : `  narrative_untrusted: none`,
           mem ? `  memory_untrusted: ${sanitizeUntrustedPromptText(mem, 500)}` : null,
+          aiMap[pool.pool] ? `  ai: regime=${aiMap[pool.pool].marketRegime} | whale=${aiMap[pool.pool].whaleExitProb?.toFixed(1)}% | chief=${aiMap[pool.pool].aiChiefRecommendation}` : null,
         ].filter(Boolean).join("\n");
       } else {
         const gmgnPriceLine = pool.gmgn_price_action
@@ -607,6 +622,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
           priceChange != null ? `  1h: price${priceChange >= 0 ? "+" : ""}${priceChange}%, net_buyers=${netBuyers ?? "?"}` : null,
           n?.narrative ? `  narrative_untrusted: ${sanitizeUntrustedPromptText(n.narrative, 500)}` : `  narrative_untrusted: none`,
           mem ? `  memory_untrusted: ${sanitizeUntrustedPromptText(mem, 500)}` : null,
+          aiMap[pool.pool] ? `  ai: regime=${aiMap[pool.pool].marketRegime} | whale=${aiMap[pool.pool].whaleExitProb?.toFixed(1)}% | chief=${aiMap[pool.pool].aiChiefRecommendation}` : null,
         ].filter(Boolean).join("\n");
       }
 
