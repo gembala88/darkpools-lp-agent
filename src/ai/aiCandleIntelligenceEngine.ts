@@ -19,7 +19,7 @@ export class AICandleIntelligenceEngine extends BaseEngine {
       return { score: 50, signal: 'neutral', reason: 'No pool address', metadata: {} };
     }
 
-    const marketData = await repositories.market.getLatest(tokenMint);
+    const marketData = await repositories.market.getLatest(poolAddress);
 
     const price = marketData?.price ?? 0;
     const volume5m = marketData?.volume5m ?? 0;

@@ -20,7 +20,7 @@ export class MarketPsychologyEngine extends BaseEngine {
     }
 
     const [marketData, recentTxs] = await Promise.all([
-      repositories.market.getLatest(tokenMint),
+      repositories.market.getLatest(poolAddress),
       repositories.transaction.getRecent(poolAddress, 60),
     ]);
 
@@ -48,10 +48,14 @@ export class MarketPsychologyEngine extends BaseEngine {
       psychology = 'EUPHORIA';
       score = 90;
       signals.push('extreme greed: large buy orders dominating');
-    } else if (buyRatio > 0.65 && txBuyRatio > 0.6) {
+    } else if (buyRatio > 0.6 && txBuyRatio > 0.55 && sizeRatio > 1.2) {
       psychology = 'GREED';
       score = 75;
       signals.push('greed: more buy volume than sell');
+    } else if (buyRatio > 0.55 && txBuyRatio > 0.5) {
+      psychology = 'GREED';
+      score = 65;
+      signals.push('mild greed: slight buy volume advantage');
     } else if (buyRatio < 0.25 && txBuyRatio < 0.3 && sizeRatio < 0.7) {
       psychology = 'CAPITULATION';
       score = 10;
@@ -60,10 +64,26 @@ export class MarketPsychologyEngine extends BaseEngine {
       psychology = 'FEAR';
       score = 25;
       signals.push('fear: sell pressure dominating');
-    } else if (buyRatio > 0.45 && buyRatio < 0.55) {
+    } else if (buyRatio < 0.45 && txBuyRatio < 0.48) {
+      psychology = 'FEAR';
+      score = 35;
+      signals.push('mild fear: slight sell volume advantage');
+    } else if (buyRatio > 0.48 && buyRatio < 0.52 && txBuyRatio > 0.45 && txBuyRatio < 0.55) {
       psychology = 'NEUTRAL';
       score = 50;
       signals.push('balanced market psychology');
+    } else if (buyRatio >= 0.52 && buyRatio <= 0.55) {
+      psychology = 'GREED';
+      score = 60;
+      signals.push('slight greed: marginal buy advantage');
+    } else if (buyRatio >= 0.45 && buyRatio <= 0.48) {
+      psychology = 'FEAR';
+      score = 40;
+      signals.push('slight fear: marginal sell advantage');
+    } else {
+      psychology = 'NEUTRAL';
+      score = 50;
+      signals.push(`mixed signals: buyRatio=${buyRatio.toFixed(2)}, txBuyRatio=${txBuyRatio.toFixed(2)}`);
     }
 
     return {

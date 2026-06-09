@@ -20,7 +20,7 @@ export class PoolActivityEngine extends BaseEngine {
     }
 
     const [marketData, liquidityData] = await Promise.all([
-      repositories.market.getLatest(tokenMint),
+      repositories.market.getLatest(poolAddress),
       repositories.liquidity.getLatest(poolAddress),
     ]);
 
@@ -43,16 +43,16 @@ export class PoolActivityEngine extends BaseEngine {
     let activityLevel: PoolActivityLevel = 'DEAD';
     let score = 0;
 
-    if (txVelocity5m > 5 || volumeVelocity > 50000 || recentTxs > 100) {
+    if (txVelocity5m > 6 || volumeVelocity > 40000 || recentTxs > 100) {
       activityLevel = 'VERY_ACTIVE';
       score = 95;
-    } else if (txVelocity5m > 2 || volumeVelocity > 10000 || recentTxs > 50) {
+    } else if (txVelocity5m > 2 || volumeVelocity > 10000 || recentTxs > 40) {
       activityLevel = 'ACTIVE';
       score = 75;
     } else if (txVelocity5m > 0.5 || volumeVelocity > 1000 || recentTxs > 10) {
       activityLevel = 'NORMAL';
       score = 50;
-    } else if (tx5m > 0 || tx15m > 0 || recentTxs > 0) {
+    } else if (txVelocity5m > 0.05 || volumeVelocity > 50 || recentTxs > 0) {
       activityLevel = 'LOW';
       score = 25;
     } else {

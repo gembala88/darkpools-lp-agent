@@ -91,7 +91,7 @@ export class ChiefAiDecisionSystem extends BaseEngine {
     let action: ChiefAIRecommendation['action'] = 'SKIP';
     if (warnings.length === 0 && finalScore >= 75 && combinedConfidence > 60) {
       action = 'DEPLOY';
-    } else if (warnings.length <= 1 && finalScore >= 60 && combinedConfidence > 50) {
+    } else if (warnings.length <= 1 && finalScore >= 60 && combinedConfidence >= 40) {
       action = 'SIMULATE';
     } else if (finalScore >= 45) {
       action = 'WATCHLIST';

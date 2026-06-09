@@ -119,6 +119,6 @@ export class MultiAgentSystem extends BaseEngine {
     const scores = results.map(r => r.score);
     const mean = scores.reduce((s, v) => s + v, 0) / scores.length;
     const variance = scores.reduce((s, v) => s + (v - mean) ** 2, 0) / scores.length;
-    return Math.min(100, variance * 3);
+    return Math.min(100, Math.sqrt(variance) * 2);
   }
 }

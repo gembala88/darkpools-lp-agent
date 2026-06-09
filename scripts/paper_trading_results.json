@@ -1,0 +1,844 @@
+[
+  {
+    "scenario": "Strong Accumulation",
+    "engines": {
+      "marketRegime": {
+        "score": 75,
+        "signal": "bullish",
+        "reason": "consistent buying pressure with high tx velocity",
+        "metadata": {
+          "regime": "ACCUMULATION",
+          "volumeSpike": 4.17,
+          "txVelocity": 9,
+          "buyPressure": 0.86,
+          "price": 1.05
+        }
+      },
+      "poolActivity": {
+        "score": 95,
+        "signal": "bullish",
+        "reason": "Pool activity level: VERY_ACTIVE (tx5m=45, vol5m=15000, traders=25)",
+        "metadata": {
+          "activityLevel": "VERY_ACTIVE",
+          "txPerMin5m": 9,
+          "txPerMin1h": 3.33,
+          "volumePerSec5m": 3000,
+          "uniqueTraders5m": 25,
+          "tvlVolumeRatio": 0.6667,
+          "recentTransactions15m": 35
+        }
+      },
+      "accumulation": {
+        "score": 90,
+        "signal": "bullish",
+        "reason": "strong accumulation with smart money leading",
+        "metadata": {
+          "buyTxRatio": 0.86,
+          "buyVolRatio": 0.93,
+          "netSmartMoneyTxs": 15,
+          "topHolderConcentration": 19,
+          "activeTopHolders": 5,
+          "price": 1.05
+        }
+      },
+      "smartMoneyFlow": {
+        "score": 95,
+        "signal": "bullish",
+        "reason": "strong smart money inflow across multiple wallets; high smart money participation",
+        "metadata": {
+          "smBuyCount": 15,
+          "smSellCount": 0,
+          "smBuyVolume": 28318.36,
+          "smSellVolume": 0,
+          "smTxRatio": 1,
+          "smVolRatio": 1,
+          "netFlow": 28318.36,
+          "uniqueBuyers": 15,
+          "uniqueSellers": 0,
+          "smartMoneyShare": 0.43
+        }
+      },
+      "candleIntelligence": {
+        "score": 70,
+        "signal": "bullish",
+        "reason": "moderate uptrend",
+        "metadata": {
+          "pattern": "UPTREND",
+          "price": 1.05,
+          "volRatio": 0.8,
+          "volumeTrend": "stable",
+          "txPerVolume": 0.003,
+          "priceChangeCount": 5
+        }
+      },
+      "marketPsychology": {
+        "score": 90,
+        "signal": "bullish",
+        "reason": "extreme greed: large buy orders dominating",
+        "metadata": {
+          "psychology": "EUPHORIA",
+          "buyVolumeRatio": 0.93,
+          "txBuyRatio": 0.86,
+          "avgBuySize": 1738.64,
+          "avgSellSize": 746.89,
+          "sizeRatio": 2.33,
+          "price": 1.05
+        }
+      },
+      "whaleExit": {
+        "score": 100,
+        "signal": "bullish",
+        "reason": "No significant whale exit indicators, score=100",
+        "metadata": {
+          "exitProbability": 0,
+          "top5Concentration": 19,
+          "top10Concentration": 21.5,
+          "topHolderSellsLastHour": 0,
+          "whaleSellVolume": 0
+        }
+      }
+    },
+    "analyst": {
+      "score": 88.94736842105264,
+      "signal": "bullish",
+      "confidence": 69.1,
+      "consensusSignal": "bullish"
+    },
+    "multiAgent": {
+      "score": 86.11002703366918,
+      "signal": "bullish",
+      "agreementRatio": 1,
+      "consensusConfidence": 100
+    },
+    "chiefAI": {
+      "score": 87.30800811010076,
+      "signal": "bullish",
+      "action": "DEPLOY",
+      "confidence": 81.5,
+      "warnings": []
+    },
+    "expected": {
+      "regime": "ACCUMULATION",
+      "activity": "VERY_ACTIVE",
+      "psychology": "EUPHORIA",
+      "accumulation": "bullish",
+      "whaleRisk": "low",
+      "smFlow": "bullish",
+      "chiefAction": "DEPLOY"
+    },
+    "passed": [
+      "marketRegime",
+      "poolActivity",
+      "marketPsychology",
+      "accumulation",
+      "whaleExit",
+      "smartMoneyFlow",
+      "chiefAI"
+    ],
+    "failed": [],
+    "score": 100
+  },
+  {
+    "scenario": "Whale Dump",
+    "engines": {
+      "marketRegime": {
+        "score": 10,
+        "signal": "bearish",
+        "reason": "high sell volume with panic selling",
+        "metadata": {
+          "regime": "PANIC",
+          "volumeSpike": 18.75,
+          "txVelocity": 16,
+          "buyPressure": 0.2,
+          "price": 0.85
+        }
+      },
+      "poolActivity": {
+        "score": 95,
+        "signal": "bullish",
+        "reason": "Pool activity level: VERY_ACTIVE (tx5m=80, vol5m=50000, traders=10)",
+        "metadata": {
+          "activityLevel": "VERY_ACTIVE",
+          "txPerMin5m": 16,
+          "txPerMin1h": 6.67,
+          "volumePerSec5m": 10000,
+          "uniqueTraders5m": 10,
+          "tvlVolumeRatio": 3.125,
+          "recentTransactions15m": 50
+        }
+      },
+      "accumulation": {
+        "score": 25,
+        "signal": "bearish",
+        "reason": "distribution pattern detected",
+        "metadata": {
+          "buyTxRatio": 0.2,
+          "buyVolRatio": 0.04,
+          "netSmartMoneyTxs": -5,
+          "topHolderConcentration": 38,
+          "activeTopHolders": 5,
+          "price": 0.85
+        }
+      },
+      "smartMoneyFlow": {
+        "score": 25,
+        "signal": "bearish",
+        "reason": "smart money distributing",
+        "metadata": {
+          "smBuyCount": 0,
+          "smSellCount": 5,
+          "smBuyVolume": 0,
+          "smSellVolume": 28102.91,
+          "smTxRatio": 0,
+          "smVolRatio": 0,
+          "netFlow": -28102.91,
+          "uniqueBuyers": 0,
+          "uniqueSellers": 5,
+          "smartMoneyShare": 0.1
+        }
+      },
+      "candleIntelligence": {
+        "score": 50,
+        "signal": "neutral",
+        "reason": "No clear candle pattern detected",
+        "metadata": {
+          "pattern": "NEUTRAL",
+          "price": 0.85,
+          "volRatio": 0.16,
+          "volumeTrend": "stable",
+          "txPerVolume": 0.0016,
+          "priceChangeCount": 5
+        }
+      },
+      "marketPsychology": {
+        "score": 10,
+        "signal": "bearish",
+        "reason": "capitulation: overwhelming sell pressure",
+        "metadata": {
+          "psychology": "CAPITULATION",
+          "buyVolumeRatio": 0.04,
+          "txBuyRatio": 0.2,
+          "avgBuySize": 835.16,
+          "avgSellSize": 5523.25,
+          "sizeRatio": 0.15,
+          "price": 0.85
+        }
+      },
+      "whaleExit": {
+        "score": 15,
+        "signal": "bearish",
+        "reason": "high top-5 concentration; whale-dominated sell volume; high total sell volume; sell pressure greatly exceeds buy pressure",
+        "metadata": {
+          "exitProbability": 85,
+          "top5Concentration": 38,
+          "top10Concentration": 43,
+          "topHolderSellsLastHour": 0,
+          "whaleSellVolume": 150672.64
+        }
+      }
+    },
+    "analyst": {
+      "score": 26.086956521739136,
+      "signal": "bearish",
+      "confidence": 14.8,
+      "consensusSignal": "bearish"
+    },
+    "multiAgent": {
+      "score": 22.270105820105815,
+      "signal": "bearish",
+      "agreementRatio": 0.83,
+      "consensusConfidence": 83.3
+    },
+    "chiefAI": {
+      "score": 0,
+      "signal": "bearish",
+      "action": "SKIP",
+      "confidence": 42.2,
+      "warnings": [
+        "CRITICAL: High whale exit probability",
+        "Unfavorable market regime",
+        "Conservative agents advise against deployment"
+      ]
+    },
+    "expected": {
+      "regime": "PANIC",
+      "activity": "VERY_ACTIVE",
+      "psychology": "CAPITULATION",
+      "accumulation": "bearish",
+      "whaleRisk": "high",
+      "smFlow": "bearish",
+      "chiefAction": "SKIP"
+    },
+    "passed": [
+      "marketRegime",
+      "poolActivity",
+      "marketPsychology",
+      "accumulation",
+      "whaleExit",
+      "smartMoneyFlow",
+      "chiefAI"
+    ],
+    "failed": [],
+    "score": 100
+  },
+  {
+    "scenario": "Dead Pool",
+    "engines": {
+      "marketRegime": {
+        "score": 45,
+        "signal": "neutral",
+        "reason": "low activity, no directional bias",
+        "metadata": {
+          "regime": "RANGING",
+          "volumeSpike": 0.01,
+          "txVelocity": 0,
+          "buyPressure": 0.5,
+          "price": 0.5
+        }
+      },
+      "poolActivity": {
+        "score": 5,
+        "signal": "bearish",
+        "reason": "Pool activity level: DEAD (tx5m=0, vol5m=0, traders=0)",
+        "metadata": {
+          "activityLevel": "DEAD",
+          "txPerMin5m": 0,
+          "txPerMin1h": 0.02,
+          "volumePerSec5m": 0,
+          "uniqueTraders5m": 0,
+          "tvlVolumeRatio": 0,
+          "recentTransactions15m": 0
+        }
+      },
+      "accumulation": {
+        "score": 50,
+        "signal": "neutral",
+        "reason": "neutral accumulation signal",
+        "metadata": {
+          "buyTxRatio": 0.5,
+          "buyVolRatio": 0.5,
+          "netSmartMoneyTxs": 0,
+          "topHolderConcentration": 100,
+          "activeTopHolders": 1,
+          "price": 0.5
+        }
+      },
+      "smartMoneyFlow": {
+        "score": 50,
+        "signal": "neutral",
+        "reason": "neutral smart money flow",
+        "metadata": {
+          "smBuyCount": 0,
+          "smSellCount": 0,
+          "smBuyVolume": 0,
+          "smSellVolume": 0,
+          "smTxRatio": 0.5,
+          "smVolRatio": 0.5,
+          "netFlow": 0,
+          "uniqueBuyers": 0,
+          "uniqueSellers": 0,
+          "smartMoneyShare": 0
+        }
+      },
+      "candleIntelligence": {
+        "score": 50,
+        "signal": "neutral",
+        "reason": "No clear candle pattern detected",
+        "metadata": {
+          "pattern": "NEUTRAL",
+          "price": 0.5,
+          "volRatio": 0.5,
+          "volumeTrend": "stable",
+          "txPerVolume": 0,
+          "priceChangeCount": 5
+        }
+      },
+      "marketPsychology": {
+        "score": 50,
+        "signal": "neutral",
+        "reason": "balanced market psychology",
+        "metadata": {
+          "psychology": "NEUTRAL",
+          "buyVolumeRatio": 0.5,
+          "txBuyRatio": 0.5,
+          "avgBuySize": 0,
+          "avgSellSize": 0,
+          "sizeRatio": 1,
+          "price": 0.5
+        }
+      },
+      "whaleExit": {
+        "score": 90,
+        "signal": "bullish",
+        "reason": "high top-5 concentration; extreme top-10 concentration; low pool activity reduces exit probability weight",
+        "metadata": {
+          "exitProbability": 10,
+          "top5Concentration": 100,
+          "top10Concentration": 100,
+          "topHolderSellsLastHour": 0,
+          "whaleSellVolume": 0
+        }
+      }
+    },
+    "analyst": {
+      "score": 44.21052631578948,
+      "signal": "neutral",
+      "confidence": 31.6,
+      "consensusSignal": "neutral"
+    },
+    "multiAgent": {
+      "score": 50.92122311479657,
+      "signal": "neutral",
+      "agreementRatio": 0.83,
+      "consensusConfidence": 83.3
+    },
+    "chiefAI": {
+      "score": 32.38136693443897,
+      "signal": "bearish",
+      "action": "SKIP",
+      "confidence": 52.3,
+      "warnings": [
+        "Pool activity too low"
+      ]
+    },
+    "expected": {
+      "regime": "RANGING",
+      "activity": "DEAD",
+      "psychology": "NEUTRAL",
+      "accumulation": "neutral",
+      "whaleRisk": "low",
+      "smFlow": "neutral",
+      "chiefAction": "SKIP"
+    },
+    "passed": [
+      "marketRegime",
+      "poolActivity",
+      "marketPsychology",
+      "accumulation",
+      "whaleExit",
+      "smartMoneyFlow",
+      "chiefAI"
+    ],
+    "failed": [],
+    "score": 100
+  },
+  {
+    "scenario": "Euphoria",
+    "engines": {
+      "marketRegime": {
+        "score": 90,
+        "signal": "bullish",
+        "reason": "extreme buy pressure with high volume",
+        "metadata": {
+          "regime": "EUPHORIA",
+          "volumeSpike": 10,
+          "txVelocity": 60,
+          "buyPressure": 0.91,
+          "price": 2.5
+        }
+      },
+      "poolActivity": {
+        "score": 95,
+        "signal": "bullish",
+        "reason": "Pool activity level: VERY_ACTIVE (tx5m=300, vol5m=200000, traders=150)",
+        "metadata": {
+          "activityLevel": "VERY_ACTIVE",
+          "txPerMin5m": 60,
+          "txPerMin1h": 20,
+          "volumePerSec5m": 40000,
+          "uniqueTraders5m": 150,
+          "tvlVolumeRatio": 1.6,
+          "recentTransactions15m": 110
+        }
+      },
+      "accumulation": {
+        "score": 90,
+        "signal": "bullish",
+        "reason": "strong accumulation with smart money leading",
+        "metadata": {
+          "buyTxRatio": 0.91,
+          "buyVolRatio": 0.98,
+          "netSmartMoneyTxs": 30,
+          "topHolderConcentration": 30,
+          "activeTopHolders": 5,
+          "price": 2.5
+        }
+      },
+      "smartMoneyFlow": {
+        "score": 90,
+        "signal": "bullish",
+        "reason": "strong smart money inflow across multiple wallets",
+        "metadata": {
+          "smBuyCount": 30,
+          "smSellCount": 0,
+          "smBuyVolume": 314139.53,
+          "smSellVolume": 0,
+          "smTxRatio": 1,
+          "smVolRatio": 1,
+          "netFlow": 314139.53,
+          "uniqueBuyers": 30,
+          "uniqueSellers": 0,
+          "smartMoneyShare": 0.27
+        }
+      },
+      "candleIntelligence": {
+        "score": 70,
+        "signal": "bullish",
+        "reason": "moderate uptrend",
+        "metadata": {
+          "pattern": "UPTREND",
+          "price": 2.5,
+          "volRatio": 0.85,
+          "volumeTrend": "stable",
+          "txPerVolume": 0.0015,
+          "priceChangeCount": 5
+        }
+      },
+      "marketPsychology": {
+        "score": 90,
+        "signal": "bullish",
+        "reason": "extreme greed: large buy orders dominating",
+        "metadata": {
+          "psychology": "EUPHORIA",
+          "buyVolumeRatio": 0.98,
+          "txBuyRatio": 0.91,
+          "avgBuySize": 10264.29,
+          "avgSellSize": 2086.13,
+          "sizeRatio": 4.92,
+          "price": 2.5
+        }
+      },
+      "whaleExit": {
+        "score": 100,
+        "signal": "bullish",
+        "reason": "No significant whale exit indicators, score=100",
+        "metadata": {
+          "exitProbability": 0,
+          "top5Concentration": 30,
+          "top10Concentration": 31.3,
+          "topHolderSellsLastHour": 0,
+          "whaleSellVolume": 0
+        }
+      }
+    },
+    "analyst": {
+      "score": 89.5238095238095,
+      "signal": "bullish",
+      "confidence": 74.1,
+      "consensusSignal": "bullish"
+    },
+    "multiAgent": {
+      "score": 89.19395734597154,
+      "signal": "bullish",
+      "agreementRatio": 1,
+      "consensusConfidence": 100
+    },
+    "chiefAI": {
+      "score": 90.01818720379146,
+      "signal": "bullish",
+      "action": "DEPLOY",
+      "confidence": 84.5,
+      "warnings": []
+    },
+    "expected": {
+      "regime": "EUPHORIA",
+      "activity": "VERY_ACTIVE",
+      "psychology": "EUPHORIA",
+      "accumulation": "bullish",
+      "whaleRisk": "low",
+      "smFlow": "bullish",
+      "chiefAction": "DEPLOY"
+    },
+    "passed": [
+      "marketRegime",
+      "poolActivity",
+      "marketPsychology",
+      "accumulation",
+      "whaleExit",
+      "smartMoneyFlow",
+      "chiefAI"
+    ],
+    "failed": [],
+    "score": 100
+  },
+  {
+    "scenario": "Distribution",
+    "engines": {
+      "marketRegime": {
+        "score": 25,
+        "signal": "bearish",
+        "reason": "distribution pattern with sell pressure",
+        "metadata": {
+          "regime": "DISTRIBUTION",
+          "volumeSpike": 9,
+          "txVelocity": 12,
+          "buyPressure": 0.4,
+          "price": 1.1
+        }
+      },
+      "poolActivity": {
+        "score": 95,
+        "signal": "bullish",
+        "reason": "Pool activity level: VERY_ACTIVE (tx5m=60, vol5m=30000, traders=30)",
+        "metadata": {
+          "activityLevel": "VERY_ACTIVE",
+          "txPerMin5m": 12,
+          "txPerMin1h": 5,
+          "volumePerSec5m": 6000,
+          "uniqueTraders5m": 30,
+          "tvlVolumeRatio": 1.5,
+          "recentTransactions15m": 50
+        }
+      },
+      "accumulation": {
+        "score": 35,
+        "signal": "bearish",
+        "reason": "slight distribution pattern",
+        "metadata": {
+          "buyTxRatio": 0.4,
+          "buyVolRatio": 0.29,
+          "netSmartMoneyTxs": -6,
+          "topHolderConcentration": 40,
+          "activeTopHolders": 5,
+          "price": 1.1
+        }
+      },
+      "smartMoneyFlow": {
+        "score": 25,
+        "signal": "bearish",
+        "reason": "smart money distributing",
+        "metadata": {
+          "smBuyCount": 3,
+          "smSellCount": 9,
+          "smBuyVolume": 8383.17,
+          "smSellVolume": 28477.46,
+          "smTxRatio": 0.25,
+          "smVolRatio": 0.23,
+          "netFlow": -20094.29,
+          "uniqueBuyers": 3,
+          "uniqueSellers": 9,
+          "smartMoneyShare": 0.24
+        }
+      },
+      "candleIntelligence": {
+        "score": 50,
+        "signal": "neutral",
+        "reason": "No clear candle pattern detected",
+        "metadata": {
+          "pattern": "NEUTRAL",
+          "price": 1.1,
+          "volRatio": 0.4,
+          "volumeTrend": "stable",
+          "txPerVolume": 0.002,
+          "priceChangeCount": 5
+        }
+      },
+      "marketPsychology": {
+        "score": 35,
+        "signal": "bearish",
+        "reason": "mild fear: slight sell volume advantage",
+        "metadata": {
+          "psychology": "FEAR",
+          "buyVolumeRatio": 0.29,
+          "txBuyRatio": 0.4,
+          "avgBuySize": 2094.21,
+          "avgSellSize": 3496.46,
+          "sizeRatio": 0.6,
+          "price": 1.1
+        }
+      },
+      "whaleExit": {
+        "score": 35,
+        "signal": "bearish",
+        "reason": "high top-5 concentration; high total sell volume; sell pressure greatly exceeds buy pressure",
+        "metadata": {
+          "exitProbability": 65,
+          "top5Concentration": 40,
+          "top10Concentration": 42.5,
+          "topHolderSellsLastHour": 0,
+          "whaleSellVolume": 0
+        }
+      }
+    },
+    "analyst": {
+      "score": 38.63636363636363,
+      "signal": "bearish",
+      "confidence": 32,
+      "consensusSignal": "bearish"
+    },
+    "multiAgent": {
+      "score": 34.99356814701378,
+      "signal": "bearish",
+      "agreementRatio": 0.83,
+      "consensusConfidence": 83.3
+    },
+    "chiefAI": {
+      "score": 26.818070444104137,
+      "signal": "bearish",
+      "action": "SKIP",
+      "confidence": 52.5,
+      "warnings": [
+        "Unfavorable market regime"
+      ]
+    },
+    "expected": {
+      "regime": "DISTRIBUTION",
+      "activity": "VERY_ACTIVE",
+      "psychology": "FEAR",
+      "accumulation": "bearish",
+      "whaleRisk": "high",
+      "smFlow": "bearish",
+      "chiefAction": "SKIP"
+    },
+    "passed": [
+      "marketRegime",
+      "poolActivity",
+      "marketPsychology",
+      "accumulation",
+      "whaleExit",
+      "smartMoneyFlow",
+      "chiefAI"
+    ],
+    "failed": [],
+    "score": 100
+  },
+  {
+    "scenario": "Mixed Signals",
+    "engines": {
+      "marketRegime": {
+        "score": 75,
+        "signal": "bullish",
+        "reason": "consistent buying pressure with high tx velocity",
+        "metadata": {
+          "regime": "ACCUMULATION",
+          "volumeSpike": 4,
+          "txVelocity": 8,
+          "buyPressure": 0.76,
+          "price": 1.2
+        }
+      },
+      "poolActivity": {
+        "score": 95,
+        "signal": "bullish",
+        "reason": "Pool activity level: VERY_ACTIVE (tx5m=40, vol5m=20000, traders=20)",
+        "metadata": {
+          "activityLevel": "VERY_ACTIVE",
+          "txPerMin5m": 8,
+          "txPerMin1h": 3,
+          "volumePerSec5m": 4000,
+          "uniqueTraders5m": 20,
+          "tvlVolumeRatio": 0.6667,
+          "recentTransactions15m": 33
+        }
+      },
+      "accumulation": {
+        "score": 95,
+        "signal": "bullish",
+        "reason": "strong accumulation with smart money leading; top holders actively accumulating",
+        "metadata": {
+          "buyTxRatio": 0.76,
+          "buyVolRatio": 0.61,
+          "netSmartMoneyTxs": 16,
+          "topHolderConcentration": 46.2,
+          "activeTopHolders": 5,
+          "price": 1.2
+        }
+      },
+      "smartMoneyFlow": {
+        "score": 95,
+        "signal": "bullish",
+        "reason": "strong smart money inflow across multiple wallets; high smart money participation",
+        "metadata": {
+          "smBuyCount": 18,
+          "smSellCount": 2,
+          "smBuyVolume": 67802.94,
+          "smSellVolume": 13782.85,
+          "smTxRatio": 0.9,
+          "smVolRatio": 0.83,
+          "netFlow": 54020.09,
+          "uniqueBuyers": 18,
+          "uniqueSellers": 2,
+          "smartMoneyShare": 0.61
+        }
+      },
+      "candleIntelligence": {
+        "score": 70,
+        "signal": "bullish",
+        "reason": "moderate uptrend",
+        "metadata": {
+          "pattern": "UPTREND",
+          "price": 1.2,
+          "volRatio": 0.75,
+          "volumeTrend": "stable",
+          "txPerVolume": 0.002,
+          "priceChangeCount": 5
+        }
+      },
+      "marketPsychology": {
+        "score": 65,
+        "signal": "neutral",
+        "reason": "mild greed: slight buy volume advantage",
+        "metadata": {
+          "psychology": "GREED",
+          "buyVolumeRatio": 0.61,
+          "txBuyRatio": 0.76,
+          "avgBuySize": 3690.08,
+          "avgSellSize": 7519.04,
+          "sizeRatio": 0.49,
+          "price": 1.2
+        }
+      },
+      "whaleExit": {
+        "score": 35,
+        "signal": "bearish",
+        "reason": "high top-5 concentration; whale-dominated sell volume; high total sell volume",
+        "metadata": {
+          "exitProbability": 65,
+          "top5Concentration": 46.2,
+          "top10Concentration": 48.2,
+          "topHolderSellsLastHour": 0,
+          "whaleSellVolume": 60152.35
+        }
+      }
+    },
+    "analyst": {
+      "score": 80.78947368421053,
+      "signal": "bullish",
+      "confidence": 38.7,
+      "consensusSignal": "bullish"
+    },
+    "multiAgent": {
+      "score": 75.69848685956995,
+      "signal": "bullish",
+      "agreementRatio": 0.67,
+      "consensusConfidence": 66.7
+    },
+    "chiefAI": {
+      "score": 80.10454605787099,
+      "signal": "bullish",
+      "action": "SIMULATE",
+      "confidence": 49.9,
+      "warnings": []
+    },
+    "expected": {
+      "regime": "ACCUMULATION",
+      "activity": "VERY_ACTIVE",
+      "psychology": "GREED",
+      "accumulation": "bullish",
+      "whaleRisk": "high",
+      "smFlow": "bullish",
+      "chiefAction": "SIMULATE"
+    },
+    "passed": [
+      "marketRegime",
+      "poolActivity",
+      "marketPsychology",
+      "accumulation",
+      "whaleExit",
+      "smartMoneyFlow",
+      "chiefAI"
+    ],
+    "failed": [],
+    "score": 100
+  }
+]

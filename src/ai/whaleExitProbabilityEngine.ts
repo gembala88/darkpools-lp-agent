@@ -19,7 +19,7 @@ export class WhaleExitProbabilityEngine extends BaseEngine {
     }
 
     const [marketData, recentTxs] = await Promise.all([
-      repositories.market.getLatest(tokenMint),
+      repositories.market.getLatest(poolAddress),
       repositories.transaction.getRecent(poolAddress, 60),
     ]);
 
@@ -39,11 +39,15 @@ export class WhaleExitProbabilityEngine extends BaseEngine {
       return recentTxs.some(t => t.walletAddress === h.address && t.type === 'sell' && t.volumeUsd > 1000);
     }).length;
 
+    const activityScore = params?.activityScore as number | undefined;
+
     let exitProbability = 0;
     const signals: string[] = [];
 
-    if (top5Concentration > 60) {
-      exitProbability += 25;
+    const concentrationWeight = activityScore !== undefined && activityScore < 20 ? 0.5 : 1.0;
+
+    if (top5Concentration >= 35) {
+      exitProbability += 25 * concentrationWeight;
       signals.push('high top-5 concentration');
     }
 
@@ -63,9 +67,25 @@ export class WhaleExitProbabilityEngine extends BaseEngine {
       }
     }
 
-    if (top10Concentration > 80) {
-      exitProbability += 15;
+    if (totalSellVolume > 50000) {
+      exitProbability += 20;
+      signals.push('high total sell volume');
+    }
+
+    const buyVol = recentTxs.filter(t => t.type === 'buy').reduce((s, t) => s + t.volumeUsd, 0);
+    if (totalSellVolume > buyVol * 2 && totalSellVolume > 30000) {
+      exitProbability += 20;
+      signals.push('sell pressure greatly exceeds buy pressure');
+    }
+
+    if (top10Concentration >= 60) {
+      exitProbability += 15 * concentrationWeight;
       signals.push('extreme top-10 concentration');
+    }
+
+    if (activityScore !== undefined && activityScore < 20) {
+      exitProbability *= 0.5;
+      signals.push('low pool activity reduces exit probability weight');
     }
 
     exitProbability = Math.min(100, exitProbability);

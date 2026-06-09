@@ -1,0 +1,26 @@
+{
+  "totalRounds": 360,
+  "overallAccuracy": 61.9,
+  "engineAccuracy": {
+    "marketRegime": 89.16666666666667,
+    "poolActivity": 88.61111111111111,
+    "marketPsychology": 91.38888888888889,
+    "accumulation": 91.38888888888889,
+    "whaleExit": 84.72222222222221,
+    "smartMoneyFlow": 100,
+    "chiefAI": 93.61111111111111
+  },
+  "actionDistribution": {
+    "DEPLOY": 121,
+    "SKIP": 180,
+    "SIMULATE": 37,
+    "WATCHLIST": 22
+  },
+  "avgAnalystConfidence": 42,
+  "avgChiefConfidence": 57.5,
+  "avgMultiAgentAgreement": 0.81,
+  "falsePositives": 68,
+  "falseNegatives": 149,
+  "scenariosWithoutFailures": 223,
+  "scenariosWithFailures": 137
+}

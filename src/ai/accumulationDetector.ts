@@ -19,7 +19,7 @@ export class AccumulationDetector extends BaseEngine {
     }
 
     const [marketData, recentTxs] = await Promise.all([
-      repositories.market.getLatest(tokenMint),
+      repositories.market.getLatest(poolAddress),
       repositories.transaction.getRecent(poolAddress, 5),
     ]);
 

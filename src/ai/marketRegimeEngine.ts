@@ -20,7 +20,7 @@ export class MarketRegimeEngine extends BaseEngine {
     }
 
     const [marketData, liquidityData] = await Promise.all([
-      repositories.market.getLatest(tokenMint),
+      repositories.market.getLatest(poolAddress),
       repositories.liquidity.getLatest(poolAddress),
     ]);
 
@@ -41,34 +41,38 @@ export class MarketRegimeEngine extends BaseEngine {
     let score = 50;
     const signals: string[] = [];
 
-    if (volumeSpike > 20 && buyPressure > 0.7 && price > 0) {
+    if (volumeSpike > 6 && buyPressure > 0.7 && price > 0) {
       regime = 'EUPHORIA';
       score = 90;
       signals.push('extreme buy pressure with high volume');
-    } else if (volumeSpike > 15 && buyPressure < 0.3 && price > 0) {
+    } else if (volumeSpike > 6 && buyPressure < 0.3 && price > 0) {
       regime = 'PANIC';
       score = 10;
       signals.push('high sell volume with panic selling');
-    } else if (buyPressure > 0.6 && txVelocity > 10 && price > 0) {
+    } else if (buyPressure > 0.6 && txVelocity > 5 && price > 0) {
       regime = 'ACCUMULATION';
       score = 75;
       signals.push('consistent buying pressure with high tx velocity');
-    } else if (buyPressure > 0.55 && volumeSpike > 5) {
-      regime = 'TRENDING_BULLISH';
-      score = 70;
-      signals.push('moderate buy bias with healthy volume');
-    } else if (buyPressure < 0.4 && volumeSpike > 5) {
-      regime = 'TRENDING_BEARISH';
-      score = 30;
-      signals.push('sell bias with significant volume');
-    } else if (buyPressure < 0.45 && volumeSpike > 8) {
+    } else if (buyPressure < 0.45 && buyPressure > 0.25 && volumeSpike > 3) {
       regime = 'DISTRIBUTION';
       score = 25;
       signals.push('distribution pattern with sell pressure');
-    } else {
+    } else if (buyPressure > 0.55 && volumeSpike > 3) {
+      regime = 'TRENDING_BULLISH';
+      score = 70;
+      signals.push('moderate buy bias with healthy volume');
+    } else if (buyPressure < 0.4 && volumeSpike > 3) {
+      regime = 'TRENDING_BEARISH';
+      score = 30;
+      signals.push('sell bias with significant volume');
+    } else if (txVelocity > 2 && volumeSpike > 1) {
       regime = 'RANGING';
       score = 50;
-      signals.push('no clear directional bias');
+      signals.push('active market with no clear directional bias');
+    } else {
+      regime = 'RANGING';
+      score = 45;
+      signals.push('low activity, no directional bias');
     }
 
     return {

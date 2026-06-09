@@ -71,8 +71,9 @@ export class AIAnalystLayer extends BaseEngine {
       consensusSignal = 'bearish';
     }
 
-    const scoreVariance = this.calculateVariance(signals.map(s => s.score));
-    const confidence = Math.max(0, Math.min(100, 100 - scoreVariance * 2));
+    const scores = signals.map(s => s.score);
+    const stdDev = Math.sqrt(this.calculateVariance(scores));
+    const confidence = Math.max(5, Math.min(100, 100 - stdDev * 3));
 
     const reasoning = this.buildReasoning(signals, consensusSignal, weightedScore);
 
