@@ -132,3 +132,53 @@ export interface ValidationResult {
   errors: string[];
   warnings: string[];
 }
+
+export type MarketRegime =
+  | 'ACCUMULATION'
+  | 'TRENDING_BULLISH'
+  | 'TRENDING_BEARISH'
+  | 'RANGING'
+  | 'DISTRIBUTION'
+  | 'PANIC'
+  | 'EUPHORIA';
+
+export type PoolActivityLevel = 'DEAD' | 'LOW' | 'NORMAL' | 'ACTIVE' | 'VERY_ACTIVE';
+
+export type TrendState = 'STRONG_BULLISH' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'STRONG_BEARISH';
+
+export type MarketPsychology = 'FEAR' | 'NEUTRAL' | 'GREED' | 'EUPHORIA' | 'CAPITULATION';
+
+export interface DeployRecord {
+  poolAddress: string;
+  tokenMint: string;
+  lpAlphaScore: number;
+  momentumScore: number;
+  marketRegime: MarketRegime;
+  deploymentDecision: string;
+  profit: number;
+  loss: number;
+  apr: number;
+  feeGenerated: number;
+  timestamp: Date;
+}
+
+export interface PatternRecord {
+  conditions: {
+    marketRegime: MarketRegime;
+    lpAlphaScoreRange: [number, number];
+    momentumScoreRange: [number, number];
+  };
+  outcomes: {
+    avgProfit: number;
+    avgApr: number;
+    successRate: number;
+    sampleCount: number;
+  };
+}
+
+export interface AgentOpinion {
+  agent: string;
+  score: number;
+  confidence: number;
+  reasoning: string;
+}

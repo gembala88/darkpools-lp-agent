@@ -1,6 +1,7 @@
 export { repositories, type Repositories } from './repositories/index.js';
 export { integrations, type Integrations } from './integrations/index.js';
 export { engines, type Engines } from './engines/index.js';
+export { aiEngines, type AIEngines } from './ai/index.js';
 export { NoDeployFilterV2, type FilterCriteria, type FilterResult } from './filters/noDeployFilterV2.js';
 export { MarketDataService } from './services/marketDataService.js';
 export { LPIntelligenceService } from './services/lpIntelligenceService.js';
