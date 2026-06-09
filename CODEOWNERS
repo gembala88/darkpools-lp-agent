@@ -1,0 +1,24 @@
+# Default owner for all files
+* @meridian-core/maintainers
+
+# TypeScript engine subsystem
+/src/engines/ @meridian-core/engine-team
+/src/repositories/ @meridian-core/engine-team
+/src/integrations/ @meridian-core/engine-team
+
+# Tests
+/tests/ @meridian-core/engine-team
+
+# CI/CD
+/.github/ @meridian-core/maintainers
+
+# Configuration
+/config.js @meridian-core/maintainers
+/user-config.json @meridian-core/maintainers
+
+# Agent loop
+/agent.js @meridian-core/agent-team
+/tools/ @meridian-core/agent-team
+
+# Security-sensitive files
+/SECURITY.md @meridian-core/maintainers
