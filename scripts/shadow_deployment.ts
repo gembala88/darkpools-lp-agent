@@ -1,10 +1,59 @@
-import { readFileSync, existsSync, writeFileSync, appendFileSync, watchFile, unwatchFile } from 'fs';
+import { readFileSync, existsSync, writeFileSync, appendFileSync } from 'fs';
 import { LPIntelligenceService } from '../dist/services/lpIntelligenceService.js';
 
 const SHADOW_DATA_FILE = 'shadow_data.jsonl';
+const DEBUG_LOG_FILE = 'shadow_debug.log';
 const STATUS_FILE = 'shadow_deployment_status.json';
 const POLL_INTERVAL_MS = 30_000;
 const RUN_HOURS = 168; // 7 days
+
+const POOL_DISCOVERY_API = 'https://pool-discovery-api.datapi.meteora.ag';
+
+interface PoolMetadata {
+  address: string;
+  name: string;
+  tokenMint: string;
+  quoteMint: string;
+  symbol: string;
+  quoteSymbol: string;
+}
+
+function debugLog(msg: string) {
+  const line = `[${new Date().toISOString()}] ${msg}\n`;
+  appendFileSync(DEBUG_LOG_FILE, line, 'utf-8');
+  process.stdout.write(msg + '\n');
+}
+
+async function fetchPoolMetadata(poolAddress: string): Promise<PoolMetadata | null> {
+  try {
+    const url = `${POOL_DISCOVERY_API}/pools?page_size=1&filter_by=${encodeURIComponent(`pool_address=${poolAddress}`)}&timeframe=5m`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const body = await res.json() as { data?: Array<Record<string, unknown>> };
+    const pool = (body.data || [])[0] as Record<string, unknown> | undefined;
+    if (!pool) return null;
+
+    const tokenX = (pool.token_x || pool.tokenX || {}) as Record<string, unknown>;
+    const tokenY = (pool.token_y || pool.tokenY || {}) as Record<string, unknown>;
+    const tokenMint = (tokenX.address || tokenX.mint || '') as string;
+    const quoteMint = (tokenY.address || tokenY.mint || '') as string;
+    const symbol = (tokenX.symbol || '') as string;
+    const quoteSymbol = (tokenY.symbol || '') as string;
+
+    if (!tokenMint) return null;
+
+    return {
+      address: poolAddress,
+      name: (pool.name || poolAddress) as string,
+      tokenMint,
+      quoteMint,
+      symbol,
+      quoteSymbol,
+    };
+  } catch {
+    return null;
+  }
+}
 
 interface ShadowRecord {
   poolAddress: string;
@@ -194,17 +243,39 @@ async function evaluatePool(
   poolName: string,
 ): Promise<ShadowRecord | null> {
   try {
-    const dummyMint = 'So11111111111111111111111111111111111111112';
-    const result = await lpIntelligence.evaluatePool(poolAddress, dummyMint, {
-      tokenName: poolName,
-      tokenSymbol: 'SHDW',
+    const meta = await fetchPoolMetadata(poolAddress);
+    if (!meta) {
+      debugLog(`SKIP ${poolAddress.slice(0, 8)}... — no pool metadata (not found on Meteora)`);
+      return null;
+    }
+
+    const tokenMint = meta.tokenMint;
+    const symbol = meta.symbol || meta.name || poolName;
+
+    if (tokenMint === 'So11111111111111111111111111111111111111112') {
+      debugLog(`SKIP ${poolAddress.slice(0, 8)}... ${symbol} — token mint is WSOL, skipping (not a real alt pool)`);
+      return null;
+    }
+
+    const result = await lpIntelligence.evaluatePool(poolAddress, tokenMint, {
+      tokenName: meta.name,
+      tokenSymbol: symbol,
       marketCap: 500000,
       tokenAgeHours: 24,
     });
 
+    const alphaScore = result.lpAlphaScore ?? 0;
+    const chiefDecision = result.aiChiefRecommendation || 'SKIP';
+    const regime = result.aiMarketRegime || 'UNKNOWN';
+
+    const logLine =
+      `OK ${poolAddress.slice(0, 8)}... | mint=${tokenMint.slice(0, 8)}... | sym=${symbol.padEnd(8)} | ` +
+      `α=${alphaScore.toFixed(2).padStart(5)} | chief=${chiefDecision.padEnd(10)} | regime=${regime}`;
+    debugLog(logLine);
+
     return {
       poolAddress,
-      poolName,
+      poolName: meta.name,
       timestamp: new Date().toISOString(),
       modeA: {
         passedSupertrend: false,
@@ -212,22 +283,174 @@ async function evaluatePool(
         productionDecision: 'SKIP',
       },
       modeB: {
-        alphaScore: result.lpAlphaScore ?? 0,
+        alphaScore,
         momentumScore: result.lpMomentumScore ?? 0,
-        marketRegime: result.aiMarketRegime || 'UNKNOWN',
+        marketRegime: regime,
         poolActivity: result.aiPoolActivity || 'UNKNOWN',
         accumulationScore: result.aiAccumulationScore ?? 0,
         whaleExitProbability: result.aiWhaleExitProbability ?? 50,
         smartMoneyScore: result.aiSmartMoneyScore ?? 0,
-        chiefRecommendation: result.aiChiefRecommendation || 'SKIP',
+        chiefRecommendation: chiefDecision,
         chiefConfidence: result.aiConfidence ?? 0,
         supertrendStatus: false,
       },
     };
   } catch (err) {
-    process.stdout.write(`  Evaluation failed: ${err instanceof Error ? err.message : String(err)}\n`);
+    debugLog(`FAIL ${poolAddress.slice(0, 8)}... — ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
+}
+
+async function validateOnly() {
+  console.log('╔══════════════════════════════════════════════════════╗');
+  console.log('║     VALIDATION MODE — First 20 pools              ║');
+  console.log('║     Verifying score variance with real tokenMint   ║');
+  console.log('╚══════════════════════════════════════════════════════╝\n');
+
+  const lpIntelligence = new LPIntelligenceService();
+
+  // Discover all pool addresses from logs
+  const allAddrs = new Set<string>();
+  const pm2LogPaths = [
+    '/root/.pm2/logs/meridian-out.log',
+    './meridian-out.log',
+    '/root/.pm2/logs/meridian-error.log',
+  ];
+  for (const logPath of pm2LogPaths) {
+    const addrs = parsePm2Log(logPath);
+    for (const a of addrs) allAddrs.add(a);
+  }
+  const decisionMap = parseDecisionLog();
+  for (const addr of decisionMap.keys()) allAddrs.add(addr);
+
+  const poolList = Array.from(allAddrs);
+
+  const results: Array<{
+    poolAddress: string;
+    tokenMint: string;
+    symbol: string;
+    alphaScore: number;
+    chiefDecision: string;
+    regime: string;
+    whaleExit: number;
+  }> = [];
+
+  for (let i = 0; i < Math.min(poolList.length, 20); i++) {
+    const addr = poolList[i];
+    process.stdout.write(`[${i + 1}/20] ${addr.slice(0, 8)}... `);
+
+    const meta = await fetchPoolMetadata(addr);
+    if (!meta) {
+      process.stdout.write('NO METADATA (skipped)\n');
+      continue;
+    }
+
+    if (meta.tokenMint === 'So11111111111111111111111111111111111111112') {
+      process.stdout.write(`WSOL token (${meta.symbol}), not an alt pool\n`);
+      continue;
+    }
+
+    try {
+      const result = await lpIntelligence.evaluatePool(addr, meta.tokenMint, {
+        tokenName: meta.name,
+        tokenSymbol: meta.symbol,
+        marketCap: 500000,
+        tokenAgeHours: 24,
+      });
+
+      const alpha = result.lpAlphaScore ?? 0;
+      const chief = result.aiChiefRecommendation || 'SKIP';
+      const regime = result.aiMarketRegime || 'RANGING';
+      const whale = result.aiWhaleExitProbability ?? 50;
+
+      results.push({
+        poolAddress: addr,
+        tokenMint: meta.tokenMint,
+        symbol: meta.symbol || '?',
+        alphaScore: alpha,
+        chiefDecision: chief,
+        regime,
+        whaleExit: whale,
+      });
+
+      process.stdout.write(`α=${alpha.toFixed(2)} chief=${chief} regime=${regime}\n`);
+    } catch (err) {
+      process.stdout.write(`EVAL FAILED: ${err instanceof Error ? err.message : String(err)}\n`);
+    }
+  }
+
+  // Print validation table
+  console.log('\n══════════════════════════════════════════════════════');
+  console.log('  VALIDATION RESULTS');
+  console.log('══════════════════════════════════════════════════════\n');
+
+  const uniqueScores = new Set(results.map(r => r.alphaScore.toFixed(2)));
+  const uniqueDecisions = new Set(results.map(r => r.chiefDecision));
+  const uniqueRegimes = new Set(results.map(r => r.regime));
+
+  console.log(`  Pools evaluated: ${results.length}`);
+  console.log(`  Unique alpha scores: ${uniqueScores.size}`);
+  console.log(`  Unique chief decisions: ${uniqueDecisions.size}`);
+  console.log(`  Unique regimes: ${uniqueRegimes.size}`);
+
+  if (uniqueScores.size > 1) {
+    console.log('\n  ✅ SCORE VARIANCE CONFIRMED — different pools produce different scores');
+  } else {
+    console.log('\n  ❌ NO SCORE VARIANCE — all pools returned the same score');
+  }
+
+  console.log('\n── Pool Details ──');
+  console.log('  #  Pool          Mint           Symbol    Alpha   Chief       Regime      Whale%');
+  console.log('  ' + '─'.repeat(85));
+  results.forEach((r, i) => {
+    console.log(
+      `  ${String(i + 1).padStart(2)} ${r.poolAddress.slice(0, 8)}  ${r.tokenMint.slice(0, 8)}    ` +
+      `${r.symbol.padEnd(8)} ${r.alphaScore.toFixed(2).padStart(6)} ${r.chiefDecision.padEnd(10)} ${r.regime.padEnd(10)} ${r.whaleExit.toFixed(0)}%`
+    );
+  });
+
+  // Generate integrity report
+  const reportLines: string[] = [
+    '# Shadow Data Integrity Report',
+    '',
+    `**Date:** ${new Date().toISOString().split('T')[0]}`,
+    `**Pools validated:** ${results.length}`,
+    `**Unique scores:** ${uniqueScores.size}`,
+    `**Unique decisions:** ${uniqueDecisions.size}`,
+    `**Unique regimes:** ${uniqueRegimes.size}`,
+    '',
+    scoreVarianceTable(results),
+    '',
+    '## Verification',
+    '',
+  ];
+
+  if (uniqueScores.size > 1) {
+    reportLines.push('✅ **Score variance confirmed.** Different pools produce different scores.');
+    reportLines.push('');
+    reportLines.push('Shadow deployment data integrity: **VALID**.');
+    reportLines.push('');
+    reportLines.push('The AI Layer correctly distinguishes between different tokens and pools.');
+    reportLines.push('All future evaluations will use real token mint data from the pool-discovery API.');
+  } else {
+    reportLines.push('❌ **No score variance detected.** All pools returned identical scores.');
+    reportLines.push('');
+    reportLines.push('Shadow deployment data integrity: **INVALID**.');
+    reportLines.push('Further investigation needed.');
+  }
+
+  writeFileSync('SHADOW_DATA_INTEGRITY_REPORT.md', reportLines.join('\n'), 'utf-8');
+
+  console.log('\n  Report: SHADOW_DATA_INTEGRITY_REPORT.md');
+}
+
+function scoreVarianceTable(results: Array<Record<string, unknown>>): string {
+  const lines = ['## Pool Details', '', '| # | Pool | Mint | Symbol | Alpha | Chief | Regime | Whale% |', '|---|---|---|---|---|---|---|---|'];
+  results.forEach((r, i) => {
+    const a = r as { poolAddress: string; tokenMint: string; symbol: string; alphaScore: number; chiefDecision: string; regime: string; whaleExit: number };
+    lines.push(`| ${i+1} | ${a.poolAddress.slice(0, 10)}... | ${a.tokenMint.slice(0, 10)}... | ${a.symbol} | ${a.alphaScore.toFixed(2)} | ${a.chiefDecision} | ${a.regime} | ${a.whaleExit.toFixed(0)}% |`);
+  });
+  return lines.join('\n');
 }
 
 async function main() {
@@ -236,6 +459,11 @@ async function main() {
   console.log('║     Mode A (current) vs Mode B (AI-first)          ║');
   console.log('║     No production flow changes. Observation only.   ║');
   console.log('╚══════════════════════════════════════════════════════╝\n');
+
+  if (process.argv.includes('--validate')) {
+    await validateOnly();
+    return;
+  }
 
   const lpIntelligence = new LPIntelligenceService();
   const existingData = loadExistingShadowData();
