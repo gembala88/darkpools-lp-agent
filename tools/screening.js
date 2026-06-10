@@ -685,7 +685,7 @@ export async function getTopCandidates({ limit = 10 } = {}) {
       pool.indicator_confirmation = confirmation || null;
       if (!confirmation || confirmation.confirmed) return true;
       pushFilteredReason(filteredOut, pool, `indicator reject: ${confirmation.reason}`);
-      log("screening", `Indicator rejected ${pool.name} (${pool.pool.slice(0, 8)}): ${confirmation.reason}`);
+      log("screening", `Indicator rejected ${pool.name} (${pool.pool}): ${confirmation.reason}`);
       return false;
     });
     eligible.splice(0, eligible.length, ...confirmedEligible);
