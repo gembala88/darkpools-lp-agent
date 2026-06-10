@@ -1,5 +1,5 @@
 import { readFileSync, existsSync, writeFileSync, appendFileSync, watchFile, unwatchFile } from 'fs';
-import { LPIntelligenceService } from '../src/services/lpIntelligenceService.js';
+import { LPIntelligenceService } from '../dist/services/lpIntelligenceService.js';
 
 const SHADOW_DATA_FILE = 'shadow_data.jsonl';
 const STATUS_FILE = 'shadow_deployment_status.json';
