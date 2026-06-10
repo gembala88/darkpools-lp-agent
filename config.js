@@ -85,14 +85,14 @@ export const config = {
     source:            u.screeningSource    ?? "meteora", // meteora | gmgn
     excludeHighSupplyConcentration: u.excludeHighSupplyConcentration ?? true,
     minFeeActiveTvlRatio: u.minFeeActiveTvlRatio ?? 0.05,
-    minTvl:            u.minTvl            ?? 10_000,
-    maxTvl:            u.maxTvl !== undefined ? u.maxTvl : 150_000,
-    minVolume:         u.minVolume         ?? 500,
-    minOrganic:        u.minOrganic        ?? 60,
-    minQuoteOrganic:   u.minQuoteOrganic   ?? 60,
-    minHolders:        u.minHolders        ?? 500,
-    minMcap:           u.minMcap           ?? 150_000,
-    maxMcap:           u.maxMcap           ?? 10_000_000,
+    minTvl:            u.minTvl            ?? 15_000,
+    maxTvl:            u.maxTvl !== undefined ? u.maxTvl : 500_000,
+    minVolume:         u.minVolume         ?? 1_000,
+    minOrganic:        u.minOrganic        ?? 40,
+    minQuoteOrganic:   u.minQuoteOrganic   ?? 40,
+    minHolders:        u.minHolders        ?? 300,
+    minMcap:           u.minMcap           ?? 250_000,
+    maxMcap:           u.maxMcap           ?? 25_000_000,
     minBinStep:        u.minBinStep        ?? 80,
     maxBinStep:        u.maxBinStep        ?? 125,
     timeframe:         u.timeframe         ?? "5m",
@@ -102,8 +102,8 @@ export const config = {
     discordSignalMode: u.discordSignalMode ?? "merge", // merge | only
     avoidPvpSymbols:   u.avoidPvpSymbols   ?? true, // avoid exact-symbol rivals with real active pools
     blockPvpSymbols:   u.blockPvpSymbols   ?? false, // hard-filter PVP rivals before the LLM sees them
-    maxBotHoldersPct:  u.maxBotHoldersPct  ?? 30,  // max bot holder addresses % (Jupiter audit)
-    maxTop10Pct:       u.maxTop10Pct       ?? 60,  // max top 10 holders concentration
+    maxBotHoldersPct:  u.maxBotHoldersPct  ?? 35,  // max bot holder addresses % (Jupiter audit)
+    maxTop10Pct:       u.maxTop10Pct       ?? 55,  // max top 10 holders concentration
     allowedLaunchpads: u.allowedLaunchpads ?? [],  // allow-list launchpads, [] = no allow-list
     blockedLaunchpads:  u.blockedLaunchpads  ?? [],  // e.g. ["letsbonk.fun", "pump.fun"]
     minTokenAgeHours:   u.minTokenAgeHours   ?? null, // null = no minimum
@@ -180,7 +180,7 @@ export const config = {
     repeatDeployCooldownMinFeeEarnedPct: u.repeatDeployCooldownMinFeeEarnedPct ?? u.repeatDeployCooldownMinFeeYieldPct ?? 0,
     minVolumeToRebalance:  u.minVolumeToRebalance  ?? 1000,
     stopLossPct:           u.stopLossPct           ?? u.emergencyPriceDropPct ?? -50,
-    takeProfitPct:         u.takeProfitPct         ?? u.takeProfitFeePct ?? 5,
+    takeProfitPct:         u.takeProfitPct         ?? u.takeProfitFeePct ?? 8,
     minFeePerTvl24h:       u.minFeePerTvl24h       ?? 7,
     minAgeBeforeYieldCheck: u.minAgeBeforeYieldCheck ?? 60, // minutes before low yield can trigger close
     minSolToOpen:          u.minSolToOpen          ?? 0.55,
@@ -189,8 +189,8 @@ export const config = {
     positionSizePct:       u.positionSizePct       ?? 0.35,
     // Trailing take-profit
     trailingTakeProfit:    u.trailingTakeProfit    ?? true,
-    trailingTriggerPct:    u.trailingTriggerPct    ?? 3,    // activate trailing at X% PnL
-    trailingDropPct:       u.trailingDropPct       ?? 1.5,  // close when drops X% from peak
+    trailingTriggerPct:    u.trailingTriggerPct    ?? 4,    // activate trailing at X% PnL
+    trailingDropPct:       u.trailingDropPct       ?? 2,  // close when drops X% from peak
     pnlSanityMaxDiffPct:   u.pnlSanityMaxDiffPct   ?? 5,    // max allowed diff between reported and derived pnl % before ignoring a tick
     // SOL mode — positions, PnL, and balances reported in SOL instead of USD
     solMode:               u.solMode               ?? false,

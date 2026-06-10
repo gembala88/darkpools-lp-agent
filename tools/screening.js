@@ -539,48 +539,323 @@ export async function discoverPools({
 }
 
 /**
+ * Discover pools from Meteora Pool Discovery API.
+ * Returns condensed pools (with all Meteora-specific fields).
+ */
+async function discoverFromMeteora() {
+  try {
+    const result = await discoverPools({ page_size: 50 });
+    const pools = Array.isArray(result?.pools) ? result.pools : [];
+    log("discovery", `source=meteora count=${pools.length}`);
+    return { pools, source: "meteora" };
+  } catch (err) {
+    log("discovery", `source=meteora error=${err.message}`);
+    return { pools: [], source: "meteora" };
+  }
+}
+
+/**
+ * Discover pools from GMGN API.
+ * Requires GMGN_API_KEY to be configured.
+ */
+async function discoverFromGMGN() {
+  try {
+    const { discoverGmgnPools } = await import("./gmgn.js");
+    const result = await discoverGmgnPools({ limit: Math.max(50, config.gmgn?.enrichLimit || 20) });
+    const pools = Array.isArray(result?.pools) ? result.pools : [];
+    log("discovery", `source=gmgn count=${pools.length}`);
+    return { pools, source: "gmgn" };
+  } catch (err) {
+    log("discovery", `source=gmgn error=${err.message}`);
+    return { pools: [], source: "gmgn" };
+  }
+}
+
+/**
+ * Normalize a DexScreener pair into the pool format expected by screening.
+ */
+function condenseDexPair(pair) {
+  return {
+    pool: pair.pairAddress || `dex-${pair.baseToken?.address}-${pair.quoteToken?.address}`,
+    name: `${pair.baseToken?.symbol || "?"}-${pair.quoteToken?.symbol || "?"}`,
+    base: {
+      symbol: pair.baseToken?.symbol,
+      mint: pair.baseToken?.address,
+      organic: null,
+      warnings: 0,
+    },
+    quote: {
+      symbol: pair.quoteToken?.symbol,
+      mint: pair.quoteToken?.address,
+    },
+    pool_type: null,
+    bin_step: null,
+    fee_pct: null,
+    tvl: round(pair.liquidity?.usd ?? 0),
+    active_tvl: round(pair.liquidity?.usd ?? 0),
+    fee_window: null,
+    volume_window: round(pair.volume?.h24 ?? 0),
+    fee_active_tvl_ratio: null,
+    volatility: null,
+    holders: null,
+    mcap: round(pair.marketCap ?? pair.fdv ?? 0),
+    token_age_hours: pair.pairCreatedAt ? Math.floor((Date.now() - pair.pairCreatedAt) / 3_600_000) : null,
+    dev: null,
+    launchpad: null,
+    price: pair.priceUsd ? Number(pair.priceUsd) : null,
+    price_change_pct: null,
+    dex_source: true,
+    dex_volume_h24: round(pair.volume?.h24 ?? 0),
+    dex_liquidity: round(pair.liquidity?.usd ?? 0),
+  };
+}
+
+/**
+ * Discover trending pools from DexScreener token-boosts/top/v1.
+ */
+async function discoverFromDexScreenerTrending() {
+  try {
+    const res = await fetch("https://api.dexscreener.com/token-boosts/top/v1");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const boosts = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+    const solanaBoosts = boosts.filter(b => (b.chainId ?? "") === "solana");
+    const pools = [];
+    for (const boost of solanaBoosts.slice(0, 30)) {
+      try {
+        const searchRes = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${boost.tokenAddress}`, { signal: AbortSignal.timeout(5000) });
+        if (!searchRes.ok) continue;
+        const searchData = await searchRes.json();
+        const pairs = Array.isArray(searchData?.pairs) ? searchData.pairs : [];
+        const solPairs = pairs.filter(p => p.chainId === "solana");
+        for (const pair of solPairs.slice(0, 3)) {
+          pools.push(condenseDexPair(pair));
+        }
+      } catch { /* skip failed token */ }
+    }
+    log("discovery", `source=dexscreener_trending count=${pools.length}`);
+    return { pools, source: "dexscreener_trending" };
+  } catch (err) {
+    log("discovery", `source=dexscreener_trending error=${err.message}`);
+    return { pools: [], source: "dexscreener_trending" };
+  }
+}
+
+/**
+ * Discover boosted pools from DexScreener token-boosts/latest/v1.
+ */
+async function discoverFromDexScreenerBoosted() {
+  try {
+    const res = await fetch("https://api.dexscreener.com/token-boosts/latest/v1");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const boosts = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+    const solanaBoosts = boosts.filter(b => (b.chainId ?? "") === "solana");
+    const pools = [];
+    for (const boost of solanaBoosts.slice(0, 30)) {
+      try {
+        const searchRes = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${boost.tokenAddress}`, { signal: AbortSignal.timeout(5000) });
+        if (!searchRes.ok) continue;
+        const searchData = await searchRes.json();
+        const pairs = Array.isArray(searchData?.pairs) ? searchData.pairs : [];
+        const solPairs = pairs.filter(p => p.chainId === "solana");
+        for (const pair of solPairs.slice(0, 3)) {
+          pools.push(condenseDexPair(pair));
+        }
+      } catch { /* skip failed token */ }
+    }
+    log("discovery", `source=dexscreener_boosted count=${pools.length}`);
+    return { pools, source: "dexscreener_boosted" };
+  } catch (err) {
+    log("discovery", `source=dexscreener_boosted error=${err.message}`);
+    return { pools: [], source: "dexscreener_boosted" };
+  }
+}
+
+/**
+ * Run all discovery sources in parallel, merge by mint, deduplicate.
+ * Priority order for duplicate mints: meteora > gmgn > dexscreener_trending > dexscreener_boosted
+ */
+async function discoverAll() {
+  const sources = await Promise.allSettled([
+    discoverFromMeteora(),
+    discoverFromGMGN(),
+    discoverFromDexScreenerTrending(),
+    discoverFromDexScreenerBoosted(),
+  ]);
+
+  const allPools = [];
+  for (const result of sources) {
+    if (result.status === "fulfilled") {
+      for (const pool of result.value.pools) {
+        allPools.push(pool);
+      }
+    }
+  }
+
+  // Merge by mint — keep first occurrence (priority: meteora > gmgn > dexscreener_trending > dexscreener_boosted)
+  const seen = new Set();
+  const merged = [];
+  for (const pool of allPools) {
+    const mint = pool.base?.mint;
+    if (!mint || seen.has(mint)) continue;
+    seen.add(mint);
+    merged.push(pool);
+  }
+
+  log("discovery", `merged count=${merged.length} (raw=${allPools.length})`);
+  return merged;
+}
+
+/**
+ * Enrich candidate pools with Birdeye, Jupiter, and DexScreener data.
+ * Merges by mint, deduplicates, and applies enrichment-based filters.
+ */
+async function enrichCandidates(pools, s) {
+  if (!Array.isArray(pools) || pools.length === 0) return { pools: [], filtered: [] };
+  const { integrations } = await import("../src/integrations/index.js");
+  const birdeye = integrations.birdeye;
+  const jupiter = integrations.jupiter;
+  const dexscreener = integrations.dexscreener;
+
+  const uniqueMints = [...new Set(pools.map(p => p.base?.mint).filter(Boolean))];
+  const enrichedMints = new Map();
+
+  for (const mint of uniqueMints) {
+    const overlay = {};
+    const rateLimits = { birdeye: false, jupiter: false };
+
+    const wrapBirdeye = (p) => p.catch((err) => {
+      if (err?.message?.includes('429') || err?.message?.includes('401')) rateLimits.birdeye = true;
+      return null;
+    });
+    const wrapJupiter = (p) => p.catch((err) => {
+      if (err?.message?.includes('429') || err?.message?.includes('401')) rateLimits.jupiter = true;
+      return null;
+    });
+
+    const [birdeyeResult, jupiterResult, dexResult] = await Promise.allSettled([
+      wrapBirdeye(birdeye.getTokenOverview(mint)),
+      wrapJupiter(jupiter.getTokenInfo(mint)),
+      dexscreener.searchPairs(mint).catch(() => ({ pairs: [] })),
+    ]);
+
+    if (birdeyeResult.status === 'fulfilled' && birdeyeResult.value) {
+      const b = birdeyeResult.value;
+      overlay.birdeyeHolders = b.holders;
+      overlay.birdeyeLiquidity = b.liquidity;
+      overlay.birdeyeMarketCap = b.marketCap;
+      overlay.birdeyeVolume24h = b.volume24h;
+    }
+
+    if (jupiterResult.status === 'fulfilled' && jupiterResult.value) {
+      const j = jupiterResult.value;
+      overlay.jupiterHolders = j.holders;
+      overlay.jupiterMarketCap = j.marketCap;
+      overlay.jupiterLiquidity = j.liquidity;
+      overlay.jupiterVolume24h = j.volume24h;
+      overlay.botHoldersPct = j.audit?.botHoldersPct;
+      overlay.topHoldersPct = j.audit?.topHoldersPct;
+    }
+
+    if (dexResult.status === 'fulfilled') {
+      const pairs = dexResult.value?.pairs ?? [];
+      const solPairs = pairs.filter(p => p.chainId === 'solana');
+      if (solPairs.length > 0) {
+        const bestLiquidity = solPairs.reduce((max, p) => Math.max(max, p.liquidity?.usd ?? 0), 0);
+        const bestVolume24h = solPairs.reduce((max, p) => Math.max(max, p.volume?.h24 ?? 0), 0);
+        overlay.dexLiquidity = bestLiquidity;
+        overlay.dexVolume24h = bestVolume24h;
+      }
+    }
+
+    // Confidence scoring based on which enrichment sources provided data
+    overlay.holdersConfidence = overlay.birdeyeHolders != null ? 'HIGH'
+      : overlay.jupiterHolders != null ? 'MEDIUM'
+      : rateLimits.birdeye ? 'RATE_LIMITED'
+      : 'NONE';
+    overlay.marketCapConfidence = overlay.birdeyeMarketCap != null ? 'HIGH'
+      : overlay.jupiterMarketCap != null ? 'MEDIUM'
+      : rateLimits.birdeye ? 'RATE_LIMITED'
+      : 'NONE';
+    overlay.auditConfidence = (overlay.botHoldersPct != null || overlay.topHoldersPct != null) ? 'HIGH'
+      : rateLimits.jupiter ? 'RATE_LIMITED'
+      : 'NONE';
+
+    // Composite quality score
+    const mcap = overlay.birdeyeMarketCap ?? overlay.jupiterMarketCap ?? 0;
+    const liq = overlay.birdeyeLiquidity ?? overlay.dexLiquidity ?? 0;
+    const vol = overlay.birdeyeVolume24h ?? overlay.dexVolume24h ?? 0;
+    const numericMcap = Number(mcap) || 0;
+    const numericLiq = Number(liq) || 0;
+    const numericVol = Number(vol) || 0;
+    const mcapScore = Math.min(1, numericMcap / 10_000_000);
+    const liqScore = Math.min(1, numericLiq / 500_000);
+    const volScore = Math.min(1, numericVol / 500_000);
+    let qualityScore = mcapScore * 2 + liqScore * 1.5 + volScore * 1.5;
+
+    // Penalty for missing confidence (RATE_LIMITED and NONE both get penalty)
+    if (overlay.holdersConfidence === 'NONE' || overlay.holdersConfidence === 'RATE_LIMITED' ||
+        overlay.marketCapConfidence === 'NONE' || overlay.marketCapConfidence === 'RATE_LIMITED') {
+      qualityScore *= 0.85;
+    }
+
+    overlay.qualityScore = Math.round(qualityScore * 100) / 100;
+
+    log("enrichment", `mint=${mint} holders=${overlay.birdeyeHolders ?? overlay.jupiterHolders ?? '?'} botPct=${overlay.botHoldersPct ?? '?'} top10Pct=${overlay.topHoldersPct ?? '?'} liquidity=${overlay.birdeyeLiquidity ?? overlay.dexLiquidity ?? '?'} volume=${overlay.birdeyeVolume24h ?? overlay.dexVolume24h ?? '?'}`);
+    log("enrichment", `[QUALITY] mint=${mint} score=${overlay.qualityScore} holdersConf=${overlay.holdersConfidence} mcapConf=${overlay.marketCapConfidence} auditConf=${overlay.auditConfidence} holders=${overlay.birdeyeHolders ?? overlay.jupiterHolders ?? '?'} mcap=${overlay.birdeyeMarketCap ?? overlay.jupiterMarketCap ?? '?'} liq=${liq}`);
+
+    enrichedMints.set(mint, overlay);
+  }
+
+  const enriched = [];
+  const filtered = [];
+  for (const pool of pools) {
+    const mint = pool.base?.mint;
+    const enr = mint ? enrichedMints.get(mint) : null;
+
+    let rejected = false;
+    if (enr) {
+      if (enr.botHoldersPct != null && enr.botHoldersPct > s.maxBotHoldersPct) {
+        filtered.push({ name: pool.name, reason: `botHoldersPct ${enr.botHoldersPct}% above maxBotHoldersPct ${s.maxBotHoldersPct}%` });
+        rejected = true;
+      }
+      if (!rejected && enr.topHoldersPct != null && enr.topHoldersPct > s.maxTop10Pct) {
+        filtered.push({ name: pool.name, reason: `topHoldersPct ${enr.topHoldersPct}% above maxTop10Pct ${s.maxTop10Pct}%` });
+        rejected = true;
+      }
+    }
+
+    if (rejected) continue;
+
+    pool._enrichment = enr;
+    enriched.push(pool);
+  }
+
+  return { pools: enriched, filtered };
+}
+
+/**
  * Returns eligible pools for the agent to evaluate and pick from.
  * Hard filters applied in code, agent decides which to deploy into.
  */
 export async function getTopCandidates({ limit = 10 } = {}) {
   const { config } = await import("../config.js");
-  const source = String(config.screening.source || "meteora").toLowerCase();
-  if (!["meteora", "gmgn"].includes(source)) {
-    throw new Error(`Invalid screeningSource: ${config.screening.source}. Use meteora or gmgn.`);
-  }
-  const discovery = source === "gmgn"
-    ? await discoverGmgnPools({ limit: Math.max(limit, config.gmgn.enrichLimit || 20) })
-    : await discoverPools({ page_size: 50 });
-  let { pools } = discovery;
-  const filteredOut = Array.isArray(discovery.filtered_examples) ? [...discovery.filtered_examples] : [];
 
-  // Token blacklist + dev blocklist (Meteora path runs these inside discoverPools; GMGN path does not)
-  if (source === "gmgn") {
-    const before = pools.length;
-    pools = pools.filter((p) => {
-      if (isBlacklisted(p.base?.mint)) {
-        log("blacklist", `Filtered blacklisted token ${p.base?.symbol} (${p.base?.mint?.slice(0, 8)})`);
-        pushFilteredReason(filteredOut, p, "blacklisted token");
-        return false;
-      }
-      if (p.dev && isDevBlocked(p.dev)) {
-        log("dev_blocklist", `Filtered blocked deployer ${p.dev?.slice(0, 8)} token ${p.base?.symbol}`);
-        pushFilteredReason(filteredOut, p, "blocked deployer");
-        return false;
-      }
-      return true;
-    });
-    if (pools.length < before) log("blacklist", `GMGN: filtered ${before - pools.length} blacklisted/blocked pool(s)`);
-  }
+  // Multi-source discovery: run all sources in parallel, merge by mint, deduplicate
+  const allPools = await discoverAll();
+  let pools = [...allPools];
+  const filteredOut = [];
+
+  log("discovery", `raw candidates per source (see individual [DISCOVERY] lines above)`);
+  log("discovery", `merged candidates=${allPools.length} deduplicated=${allPools.length} (duplicates already removed in merge)`);
 
   // Exclude pools where the wallet already has an open position
   const { getMyPositions } = await import("./dlmm.js");
   const { positions } = await getMyPositions();
   const occupiedPools = new Set(positions.map((p) => p.pool));
   const occupiedMints = new Set(positions.map((p) => p.base_mint).filter(Boolean));
-  const minTvl = source === "gmgn"
-    ? Number(config.gmgn.minTvl ?? config.screening.minTvl ?? 0)
-    : Number(config.screening.minTvl ?? 0);
+  const minTvl = Number(config.screening.minTvl ?? 0);
   const maxTvl = config.screening.maxTvl == null ? null : Number(config.screening.maxTvl);
   const minFeeActiveTvlRatio = Number(config.screening.minFeeActiveTvlRatio ?? 0);
 
@@ -595,14 +870,17 @@ export async function getTopCandidates({ limit = 10 } = {}) {
         pushFilteredReason(filteredOut, p, `TVL $${tvl} above maxTvl $${maxTvl}`);
         return false;
       }
-      const feeActiveTvlRatio = Number(p.fee_active_tvl_ratio);
-      if (Number.isFinite(minFeeActiveTvlRatio) && minFeeActiveTvlRatio > 0 && (!Number.isFinite(feeActiveTvlRatio) || feeActiveTvlRatio < minFeeActiveTvlRatio)) {
-        pushFilteredReason(filteredOut, p, `fee/active-TVL ${Number.isFinite(feeActiveTvlRatio) ? feeActiveTvlRatio : "unknown"} below minFeeActiveTvlRatio ${minFeeActiveTvlRatio}`);
-        return false;
-      }
-      if (!isUsableVolatility(p.volatility)) {
-        pushFilteredReason(filteredOut, p, `volatility ${p.volatility ?? "unknown"} unusable`);
-        return false;
+      // DexScreener sources don't provide fee/active-TVL or volatility — skip those checks
+      if (!p.dex_source) {
+        const feeActiveTvlRatio = Number(p.fee_active_tvl_ratio);
+        if (Number.isFinite(minFeeActiveTvlRatio) && minFeeActiveTvlRatio > 0 && (!Number.isFinite(feeActiveTvlRatio) || feeActiveTvlRatio < minFeeActiveTvlRatio)) {
+          pushFilteredReason(filteredOut, p, `fee/active-TVL ${Number.isFinite(feeActiveTvlRatio) ? feeActiveTvlRatio : "unknown"} below minFeeActiveTvlRatio ${minFeeActiveTvlRatio}`);
+          return false;
+        }
+        if (!isUsableVolatility(p.volatility)) {
+          pushFilteredReason(filteredOut, p, `volatility ${p.volatility ?? "unknown"} unusable`);
+          return false;
+        }
       }
       if (occupiedPools.has(p.pool)) {
         pushFilteredReason(filteredOut, p, "already have an open position in this pool");
@@ -626,6 +904,66 @@ export async function getTopCandidates({ limit = 10 } = {}) {
     })
     .sort((a, b) => scoreCandidate(b) - scoreCandidate(a))
     .slice(0, limit);
+
+  // Multi-source enrichment: cross-reference Birdeye, Jupiter, DexScreener
+  if (eligible.length > 0) {
+    const { pools: enriched, filtered: enrichFiltered } = await enrichCandidates(eligible, config.screening);
+    for (const f of enrichFiltered) {
+      pushFilteredReason(filteredOut, f, f.reason);
+      log("screening", `Enrichment filtered ${f.name || 'unknown'} — ${f.reason}`);
+    }
+    eligible.splice(0, eligible.length, ...enriched);
+    if (eligible.length < enrichFiltered.length) {
+      log("screening", `Enrichment removed ${enrichFiltered.length - eligible.length} candidate(s)`);
+    }
+  }
+
+  // Apply mcap/holders/volume filters using best available data (pool direct fields + enrichment)
+  if (eligible.length > 0) {
+    const s = config.screening;
+    const before = eligible.length;
+    const filtered = [];
+    for (const pool of eligible) {
+      const enr = pool._enrichment || {};
+      const bestMcap = enr.birdeyeMarketCap ?? enr.jupiterMarketCap ?? pool.mcap ?? pool.marketCap;
+      const bestHolders = enr.birdeyeHolders ?? enr.jupiterHolders ?? pool.holders;
+      const bestVolume = enr.birdeyeVolume24h ?? enr.jupiterVolume24h ?? enr.dexVolume24h ?? pool.volume_window;
+
+      if (bestMcap != null && bestMcap < s.minMcap) {
+        pushFilteredReason(filteredOut, pool, `mcap ${bestMcap} below minMcap ${s.minMcap}`);
+        continue;
+      }
+      if (bestMcap != null && bestMcap > s.maxMcap) {
+        pushFilteredReason(filteredOut, pool, `mcap ${bestMcap} above maxMcap ${s.maxMcap}`);
+        continue;
+      }
+      if (bestHolders != null && bestHolders < s.minHolders) {
+        pushFilteredReason(filteredOut, pool, `holders ${bestHolders} below minHolders ${s.minHolders}`);
+        continue;
+      }
+      if (bestVolume != null && bestVolume < s.minVolume) {
+        pushFilteredReason(filteredOut, pool, `volume ${bestVolume} below minVolume ${s.minVolume}`);
+        continue;
+      }
+
+      // Back-fill normalized fields for downstream consumers (condensePool, scoreCandidate)
+      if (bestMcap != null) {
+        pool.mcap = bestMcap;
+        pool.marketCap = bestMcap;
+      }
+      if (bestVolume != null) {
+        pool.volume_window = bestVolume;
+      }
+      if (bestHolders != null) {
+        pool.holders = bestHolders;
+      }
+      filtered.push(pool);
+    }
+    eligible.splice(0, eligible.length, ...filtered);
+    if (eligible.length < before) {
+      log("screening", `Mcap/holders/volume filters removed ${before - eligible.length} candidate(s)`);
+    }
+  }
 
   if (config.screening.avoidPvpSymbols && eligible.length > 0) {
     await enrichPvpRisk(eligible);
@@ -696,10 +1034,9 @@ export async function getTopCandidates({ limit = 10 } = {}) {
 
   return {
     candidates: eligible,
-    total_screened: discovery.total ?? pools.length,
-    source,
+    total_screened: allPools.length,
+    source: "multi",
     filtered_examples: filteredOut.slice(0, 3),
-    stage_counts: discovery.stage_counts ? { ranked: discovery.total, ...discovery.stage_counts } : null,
     all_filtered: filteredOut,
   };
 }

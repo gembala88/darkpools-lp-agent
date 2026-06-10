@@ -1,4 +1,5 @@
 import { BaseIntegration } from '../baseIntegration.js';
+import { Cache } from '../../utils/cache.js';
 
 export interface BirdeyeTokenOverview {
   mint: string;
@@ -50,6 +51,7 @@ export interface BirdeyeMarketData {
 
 export class BirdeyeAdapter extends BaseIntegration {
   readonly name = 'birdeye';
+  private holderCache = new Cache<BirdeyeHolder[]>(10 * 60 * 1000);
 
   constructor(apiKey?: string) {
     super({
@@ -74,10 +76,53 @@ export class BirdeyeAdapter extends BaseIntegration {
   }
 
   async getTokenHolders(mint: string, limit = 100): Promise<BirdeyeHolder[]> {
-    const raw = await this.apiFetch<Record<string, unknown> | BirdeyeHolder[]>(`/defi/token_holders`, { address: mint, limit });
-    if (Array.isArray(raw)) return raw;
-    const holders = (raw as Record<string, unknown>)?.holders;
-    return Array.isArray(holders) ? holders as BirdeyeHolder[] : [];
+    const cacheKey = `holders:${mint}:${limit}`;
+    const cached = this.holderCache.get(cacheKey);
+    if (cached) return cached;
+
+    const parseRaw = (raw: Record<string, unknown> | BirdeyeHolder[]): BirdeyeHolder[] => {
+      console.log('[holder-debug]', JSON.stringify(raw).slice(0, 500));
+      if (Array.isArray(raw)) return raw;
+      const items = (raw as Record<string, unknown>)?.items;
+      console.log('[holder-debug] items array?', Array.isArray(items), 'length:', Array.isArray(items) ? items.length : 'N/A');
+      if (!Array.isArray(items)) return [];
+      return (items as Array<Record<string, unknown>>).map((item) => ({
+        address: String(item.address ?? ''),
+        balance: Number(item.amount ?? 0),
+        percentage: Number(item.percentage ?? 0),
+        tags: Array.isArray(item.tags) ? (item.tags as string[]) : [],
+      }));
+    };
+
+    try {
+      const raw = await this.apiFetch<Record<string, unknown> | BirdeyeHolder[]>(
+        `/defi/v3/token/holder`, { address: mint, offset: 0, limit }
+      );
+      const result = parseRaw(raw);
+      this.holderCache.set(cacheKey, result);
+      return result;
+    } catch (err) {
+      if (err instanceof Error && err.message?.includes('401')) {
+        console.log('[holder-debug] Birdeye 401 on /defi/v3/token/holder, falling back to Jupiter DatAPI');
+        const jupResult = await this.fetchFromJupiterHolders(mint, limit);
+        this.holderCache.set(cacheKey, jupResult);
+        return jupResult;
+      }
+      throw err;
+    }
+  }
+
+  private async fetchFromJupiterHolders(mint: string, limit: number): Promise<BirdeyeHolder[]> {
+    const res = await fetch(`https://datapi.jup.ag/v1/holders/${mint}?limit=${limit}`);
+    if (!res.ok) throw new Error(`Jupiter holders HTTP ${res.status}`);
+    const data: any = await res.json();
+    const items = Array.isArray(data) ? data : (data?.holders ?? []);
+    return items.map((item: Record<string, unknown>) => ({
+      address: String(item.address ?? ''),
+      balance: Number(item.amount ?? item.balance ?? 0),
+      percentage: Number(item.percentage ?? item.pct ?? 0),
+      tags: [],
+    }));
   }
 
   async getTokenTransactions(mint: string, limit = 100): Promise<BirdeyeTransaction[]> {
