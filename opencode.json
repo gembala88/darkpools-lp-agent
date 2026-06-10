@@ -1,0 +1,44 @@
+{
+  "$schema": "https://opencode.ai/opencode.schema.json",
+  "name": "Meridian — Darkpools LP Agent (v1.1.0-rc1)",
+  "description": "Autonomous DLMM liquidity provider agent with AI Intelligence Layer",
+  "branch": "release/v1.1.0-rc1",
+  "settings": {
+    "session": {
+      "autoRestore": true,
+      "persistHistory": true
+    }
+  },
+  "tasks": [
+    {
+      "name": "Shadow Deployment (7d)",
+      "command": "npx ts-node scripts/shadow_deployment.ts",
+      "description": "Run 7-day shadow A/B test"
+    },
+    {
+      "name": "Validate Shadow (20 pools)",
+      "command": "npx ts-node scripts/shadow_deployment.ts --validate",
+      "description": "Validate 20 pools with real tokenMint"
+    },
+    {
+      "name": "FullSync HTTP Trace",
+      "command": "npx ts-node scripts/fullsync_trace.ts",
+      "description": "HTTP-level trace of every fullSync endpoint"
+    },
+    {
+      "name": "Repository Root Cause",
+      "command": "npx ts-node scripts/repository_trace_v2.ts",
+      "description": "Step-by-step repository population trace"
+    },
+    {
+      "name": "Data Flow Audit",
+      "command": "npx ts-node scripts/audit_dataflow.ts",
+      "description": "Per-engine raw output for 10 pools"
+    },
+    {
+      "name": "Rebuild project",
+      "command": "npm run build",
+      "description": "Compile TypeScript to dist/"
+    }
+  ]
+}
