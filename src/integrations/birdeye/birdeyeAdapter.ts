@@ -74,11 +74,17 @@ export class BirdeyeAdapter extends BaseIntegration {
   }
 
   async getTokenHolders(mint: string, limit = 100): Promise<BirdeyeHolder[]> {
-    return this.apiFetch<BirdeyeHolder[]>(`/defi/token_holders`, { address: mint, limit });
+    const raw = await this.apiFetch<Record<string, unknown> | BirdeyeHolder[]>(`/defi/token_holders`, { address: mint, limit });
+    if (Array.isArray(raw)) return raw;
+    const holders = (raw as Record<string, unknown>)?.holders;
+    return Array.isArray(holders) ? holders as BirdeyeHolder[] : [];
   }
 
   async getTokenTransactions(mint: string, limit = 100): Promise<BirdeyeTransaction[]> {
-    return this.apiFetch<BirdeyeTransaction[]>(`/defi/txs/token`, { address: mint, limit });
+    const raw = await this.apiFetch<Record<string, unknown> | BirdeyeTransaction[]>(`/defi/txs/token`, { address: mint, limit });
+    if (Array.isArray(raw)) return raw;
+    const txns = (raw as Record<string, unknown>)?.txns;
+    return Array.isArray(txns) ? txns as BirdeyeTransaction[] : [];
   }
 
   async getTokenMarketData(mint: string): Promise<BirdeyeMarketData> {

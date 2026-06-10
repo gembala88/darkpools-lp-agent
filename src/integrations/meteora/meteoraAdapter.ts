@@ -53,7 +53,30 @@ export class MeteoraAdapter extends BaseIntegration {
   }
 
   async getPool(address: string): Promise<MeteoraDLMMPool> {
-    return this.apiFetch<MeteoraDLMMPool>(`/pair/${address}`);
+    const raw = await this.apiFetch<Record<string, unknown>>(`/pair/${address}`);
+    return {
+      address: (raw.address ?? '') as string,
+      name: (raw.name ?? '') as string,
+      mintX: (raw.mintX ?? raw.mint_x ?? '') as string,
+      mintY: (raw.mintY ?? raw.mint_y ?? '') as string,
+      binStep: (raw.binStep ?? raw.bin_step ?? 0) as number,
+      baseFee: (raw.baseFee ?? raw.base_fee_percentage ?? 0) as number,
+      feePct: (raw.feePct ?? 0) as number,
+      activeBin: (raw.activeBin ?? raw.active_bin ?? 0) as number,
+      price: (raw.price ?? 0) as number,
+      tvl: (raw.tvl ?? 0) as number,
+      volume24h: (raw.volume24h ?? 0) as number,
+      fee24h: (raw.fee24h ?? 0) as number,
+      apr24h: (raw.apr24h ?? 0) as number,
+      apr7d: (raw.apr7d ?? 0) as number,
+      utilization: (raw.utilization ?? 0) as number,
+      activeBins: (raw.activeBins ?? raw.active_bins ?? 0) as number,
+      totalBins: (raw.totalBins ?? raw.total_bins ?? 0) as number,
+      liquidityX: (raw.liquidityX ?? raw.liquidity_x ?? raw.reserve_x ?? 0) as number,
+      liquidityY: (raw.liquidityY ?? raw.liquidity_y ?? raw.reserve_y ?? 0) as number,
+      tokenX: (raw.tokenX ?? raw.token_x ?? { mint: '', symbol: '', name: '', decimals: 0 }) as MeteoraDLMMPool['tokenX'],
+      tokenY: (raw.tokenY ?? raw.token_y ?? { mint: '', symbol: '', name: '', decimals: 0 }) as MeteoraDLMMPool['tokenY'],
+    };
   }
 
   async getPoolStats(address: string): Promise<MeteoraPoolStats> {

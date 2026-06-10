@@ -55,7 +55,9 @@ export class MarketDataService {
         throw new Error(`Token data validation failed: ${validation.errors.join(', ')}`);
       }
 
-      return await repositories.token.upsert(token);
+      const saved = await repositories.token.upsert(token);
+      console.log(`  [token] ${mint.slice(0, 8)}... ${token.symbol} mcap=${token.marketCap} liq=${token.liquidity} hldrs=${token.holders}`);
+      return saved;
     } catch (error) {
       throw new Error(`Failed to fetch token data for ${mint}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -64,6 +66,10 @@ export class MarketDataService {
   async fetchAndStoreHolders(mint: string): Promise<number> {
     try {
       const holders = await this.birdeye.getTokenHolders(mint);
+      if (holders.length === 0) {
+        console.log(`  [holders] ${mint.slice(0, 8)}... fetched 0 holders (empty response)`);
+        return 0;
+      }
       const holderData: HolderData[] = holders.map(h => ({
         address: h.address,
         tokenMint: mint,
@@ -74,7 +80,9 @@ export class MarketDataService {
         transactionCount: 0,
         tags: h.tags ?? [],
       }));
-      return await repositories.holder.bulkUpsert(holderData);
+      const saved = await repositories.holder.bulkUpsert(holderData);
+      console.log(`  [holders] ${mint.slice(0, 8)}... fetched=${holders.length} mapped=${holderData.length} saved=${saved}`);
+      return saved;
     } catch (error) {
       throw new Error(`Failed to fetch holders for ${mint}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -83,6 +91,10 @@ export class MarketDataService {
   async fetchAndStoreTransactions(mint: string, poolAddress: string): Promise<number> {
     try {
       const txs = await this.birdeye.getTokenTransactions(mint);
+      if (txs.length === 0) {
+        console.log(`  [txs] ${mint.slice(0, 8)}... fetched 0 transactions (empty response)`);
+        return 0;
+      }
       const txData: TransactionData[] = txs.map(t => ({
         signature: t.signature,
         poolAddress,
@@ -96,7 +108,9 @@ export class MarketDataService {
         isSmartMoney: false,
         uniqueKey: `${t.signature}:${t.type}`,
       }));
-      return await repositories.transaction.bulkAdd(txData);
+      const saved = await repositories.transaction.bulkAdd(txData);
+      console.log(`  [txs] ${mint.slice(0, 8)}... fetched=${txs.length} mapped=${txData.length} saved=${saved}`);
+      return saved;
     } catch (error) {
       throw new Error(`Failed to fetch transactions for ${mint}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -142,6 +156,7 @@ export class MarketDataService {
       }
 
       await repositories.market.add(marketData);
+      console.log(`  [market] ${mint.slice(0, 8)}... vol5m=${marketData.volume5m} tx5m=${marketData.txCount5m}`);
       return marketData;
     } catch (error) {
       throw new Error(`Failed to fetch market data for ${mint}: ${error instanceof Error ? error.message : String(error)}`);
@@ -151,6 +166,10 @@ export class MarketDataService {
   async syncPoolLiquidity(poolAddress: string): Promise<LiquiditySnapshot | null> {
     try {
       const pool = await this.meteora.getPool(poolAddress);
+      if (!pool || !pool.mintX) {
+        console.log(`  [liquidity] ${poolAddress.slice(0, 8)}... pool not found or invalid`);
+        return null;
+      }
       const snapshot: LiquiditySnapshot = {
         poolAddress,
         tokenMint: pool.mintX,
@@ -161,9 +180,11 @@ export class MarketDataService {
         source: 'meteora',
       };
       await repositories.liquidity.add(snapshot);
+      console.log(`  [liquidity] ${poolAddress.slice(0, 8)}... mint=${pool.mintX.slice(0, 8)}... liq=${snapshot.liquidity} tvl=${snapshot.tvl}`);
       return snapshot;
     } catch (error) {
-      throw new Error(`Failed to sync liquidity for ${poolAddress}: ${error instanceof Error ? error.message : String(error)}`);
+      console.log(`  [liquidity] ${poolAddress.slice(0, 8)}... FAILED: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
     }
   }
 

@@ -56,8 +56,8 @@ export class LiquidityRepository extends BaseRepository<LiquiditySnapshot> {
     const errors: string[] = [];
     if (!data.poolAddress) errors.push('poolAddress is required');
     if (!data.tokenMint) errors.push('tokenMint is required');
-    if (data.liquidity != null && data.liquidity <= 0) errors.push('liquidity must be > 0');
-    if (data.tvl != null && data.tvl <= 0) errors.push('tvl must be > 0');
+    if (data.liquidity != null && data.liquidity < 0) errors.push('liquidity cannot be negative');
+    if (data.tvl != null && data.tvl < 0) errors.push('tvl cannot be negative');
     return { valid: errors.length === 0, errors, warnings: [] };
   }
 
