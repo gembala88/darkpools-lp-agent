@@ -61,6 +61,14 @@ export class BirdeyeAdapter extends BaseIntegration {
     });
   }
 
+  protected async apiFetch<T>(endpoint: string, params?: Record<string, unknown>): Promise<T> {
+    const raw = await super.apiFetch<Record<string, unknown>>(endpoint, params);
+    if (raw && typeof raw === 'object' && 'success' in raw && 'data' in raw) {
+      return (raw as { data: T }).data;
+    }
+    return raw as T;
+  }
+
   async getTokenOverview(mint: string): Promise<BirdeyeTokenOverview> {
     return this.apiFetch<BirdeyeTokenOverview>(`/defi/token_overview`, { address: mint });
   }

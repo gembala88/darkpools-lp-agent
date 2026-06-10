@@ -36,8 +36,8 @@ export class TokenRepository extends BaseRepository<TokenData> {
     const warnings: string[] = [];
 
     if (!data.mint) errors.push('mint is required');
-    if (data.liquidity != null && data.liquidity <= 0) errors.push('liquidity must be > 0');
-    if (data.marketCap != null && data.marketCap <= 0) errors.push('marketCap must be > 0');
+    if (data.liquidity != null && data.liquidity < 0) errors.push('liquidity must be >= 0');
+    if (data.marketCap != null && data.marketCap < 0) errors.push('marketCap must be >= 0');
     if (data.holders != null && data.holders < 0) errors.push('holders count invalid');
     if (data.decimals != null && (data.decimals < 0 || data.decimals > 18)) warnings.push('unusual decimals value');
 

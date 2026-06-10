@@ -71,14 +71,26 @@ describe('TokenRepository', () => {
     expect(all.length).toBe(3);
   });
 
-  it('should reject token with zero liquidity', () => {
-    const invalid = createToken({ liquidity: 0 });
+  it('should accept token with zero liquidity', () => {
+    const token = createToken({ liquidity: 0 });
+    const validation = repo.validate(token);
+    expect(validation.valid).toBe(true);
+  });
+
+  it('should accept token with zero marketCap', () => {
+    const token = createToken({ marketCap: 0 });
+    const validation = repo.validate(token);
+    expect(validation.valid).toBe(true);
+  });
+
+  it('should reject token with negative liquidity', () => {
+    const invalid = createToken({ liquidity: -1 });
     const validation = repo.validate(invalid);
     expect(validation.valid).toBe(false);
   });
 
-  it('should reject token with zero marketCap', () => {
-    const invalid = createToken({ marketCap: 0 });
+  it('should reject token with negative marketCap', () => {
+    const invalid = createToken({ marketCap: -1 });
     const validation = repo.validate(invalid);
     expect(validation.valid).toBe(false);
   });
