@@ -1664,15 +1664,16 @@ async function telegramHandler(msg) {
   if (msg?.isCallback && text.startsWith("mode:")) {
     await answerCallbackQuery(msg.callbackQueryId, "Processing...");
     const action = text.split(":")[1];
+    const isDryRun = process.env.DRY_RUN === 'true';
     if (action === "toggle_dryrun") {
       await sendMessage("⚠️ Are you sure? This affects real trading.\n\n[Yes, toggle] — click filter button again\n[Cancel] — type /mode", msg.messageId).catch(() => {});
-      const newDryRun = !config.dryRun;
+      const newDryRun = !isDryRun;
       const result = await executeTool("update_config", {
         changes: { dryRun: newDryRun, enableRealDeployment: !newDryRun },
         reason: "Telegram /mode toggle dryrun",
       });
       if (result?.success) {
-        sendToChannel(`🔄 DRY RUN toggled: ${config.dryRun ? "ON" : "OFF"} → ${newDryRun ? "ON" : "OFF"} by user`, "info").catch(() => {});
+        sendToChannel(`🔄 DRY RUN toggled: ${isDryRun ? "ON" : "OFF"} → ${newDryRun ? "ON" : "OFF"} by user`, "info").catch(() => {});
       }
     } else if (action === "toggle_live") {
       await sendHTML("⚠️ DANGER: This enables REAL capital deployment.\n\nType <code>CONFIRM</code> to proceed.").catch(() => {});
@@ -2027,10 +2028,11 @@ async function telegramHandler(msg) {
   // ── Phase 90 commands ──────────────────────
 
   if (text === "/mode") {
+    const isDryRun = process.env.DRY_RUN === 'true';
     await sendMessageWithButtons(
-      `🤖 Agent Mode\n\n- DRY RUN: ${config.dryRun ? "✅ ON" : "❌ OFF"}\n- Live Trading: ${!config.dryRun && process.env.ENABLE_REAL_DEPLOYMENT === 'true' ? "✅ ON" : "❌ OFF"}\n- Deploy Amount: ${config.management.deployAmountSol} SOL`,
+      `🤖 Agent Mode\n\n- DRY RUN: ${isDryRun ? "✅ ON" : "❌ OFF"}\n- Live Trading: ${!isDryRun && process.env.ENABLE_REAL_DEPLOYMENT === 'true' ? "✅ ON" : "❌ OFF"}\n- Deploy Amount: ${config.management.deployAmountSol} SOL`,
       [
-        [{ text: config.dryRun ? "🔄 Toggle DRY RUN" : "🔄 Toggle DRY RUN", callback_data: "mode:toggle_dryrun" }],
+        [{ text: "🔄 Toggle DRY RUN", callback_data: "mode:toggle_dryrun" }],
         [{ text: "🔄 Toggle Live Trading", callback_data: "mode:toggle_live" }],
       ]
     ).catch(() => {});
@@ -2134,15 +2136,16 @@ async function telegramHandler(msg) {
   if (text === "/agent") {
     try {
       const { positions } = await getMyPositions({ force: true });
-      const wallet = await getWalletBalances().catch(() => ({ sol: "?" }));
+      const wallet = await getWalletBalances().catch(() => ({ sol: "?", wallet: "?" }));
       const lastScreen = timers.screeningLastRun ? Math.round((Date.now() - timers.screeningLastRun) / 60000) : "?";
       const regime = _latestRegime || "RANGING";
       const psychology = _latestPsychology || "NEUTRAL";
       const model = config.llm.screeningModel || "?";
-      const masked = String(wallet.address || config.walletAddress || "?").replace(/^(.{4}).*(.{3})$/, "$1...$2");
+      const isDryRun = process.env.DRY_RUN === 'true';
+      let masked = String(wallet.wallet || "?").replace(/^(.{4}).*(.{3})$/, "$1...$2");
       await sendMessage([
         "🤖 Agent Status",
-        `- Mode: ${config.dryRun ? "DRY RUN ✅" : "LIVE 🔴"}`,
+        `- Mode: ${isDryRun ? "DRY RUN ✅" : "LIVE 🔴"}`,
         `- Model: ${model}`,
         `- Screening: every ${config.schedule.screeningIntervalMin}m`,
         `- Management: every ${config.schedule.managementIntervalMin}m`,
