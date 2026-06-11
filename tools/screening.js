@@ -566,12 +566,51 @@ export async function discoverPools({
  */
 async function discoverFromMeteora() {
   try {
-    const result = await discoverPools({ page_size: 50 });
-    const pools = Array.isArray(result?.pools) ? result.pools : [];
-    log("discovery", `source=meteora count=${pools.length}`);
+    const url = "https://dlmm-api.meteora.ag/pair/all_with_pagination?page=0&limit=100&sort_key=volume&order_by=desc";
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const pairs = Array.isArray(data?.pairs) ? data.pairs : [];
+    const SOL_MINT = "So11111111111111111111111111111111111111112";
+    const solPairs = pairs.filter(p => p.mint_x === SOL_MINT || p.mint_y === SOL_MINT);
+    const pools = solPairs.map(p => {
+      const baseMint = p.mint_x === SOL_MINT ? p.mint_y : p.mint_x;
+      const tokens = (p.name || "").split("-");
+      const baseSymbol = p.mint_x === SOL_MINT ? tokens[1] || baseMint.slice(0, 4) : tokens[0] || baseMint.slice(0, 4);
+      return {
+        pool: p.address,
+        name: p.name || `${baseSymbol}-SOL`,
+        base: { symbol: baseSymbol, mint: baseMint, organic: null, warnings: 0 },
+        quote: { symbol: "SOL", mint: SOL_MINT },
+        pool_type: "dlmm",
+        bin_step: p.bin_step,
+        fee_pct: null,
+        tvl: p.liquidity || 0,
+        active_tvl: p.liquidity || 0,
+        fee_window: null,
+        volume_window: p.trade_volume_24h || 0,
+        fee_active_tvl_ratio: p.fees_24h && p.liquidity ? p.fees_24h / p.liquidity : null,
+        volatility: null,
+        holders: null,
+        mcap: null,
+        token_age_hours: null,
+        dev: null,
+        launchpad: null,
+        price: null,
+        price_change_pct: null,
+        dex_source: false,
+        meteora_found: true,
+        verified_dlmm: true,
+        dlmm_liquidity: p.liquidity || 0,
+        dlmm_volume_24h: p.trade_volume_24h || 0,
+        dlmm_fees_24h: p.fees_24h || 0,
+        dlmm_apr: p.apr || null,
+      };
+    });
+    log("discovery", `source=meteora_dlmm count=${pools.length} (real DLMM pools)`);
     return { pools, source: "meteora" };
   } catch (err) {
-    log("discovery", `source=meteora error=${err.message}`);
+    log("discovery", `source=meteora_dlmm error=${err.message}`);
     return { pools: [], source: "meteora" };
   }
 }
@@ -1288,6 +1327,12 @@ export async function getTopCandidates({ limit = 10 } = {}) {
       const confirmation = confirmationByPool.get(pool.pool);
       pool.indicator_confirmation = confirmation || null;
       if (!confirmation || confirmation.confirmed) return true;
+      if (process.env.DRY_RUN === "true") {
+        pool.indicator_penalty = 10;
+        pool.indicator_soft_reject = confirmation.reason;
+        log("screening", `DRY RUN — indicator not confirmed for ${pool.name} (${pool.pool}), soft penalty (-10) instead of reject`);
+        return true;
+      }
       pushFilteredReason(filteredOut, pool, `indicator reject: ${confirmation.reason}`);
       log("screening", `Indicator rejected ${pool.name} (${pool.pool}): ${confirmation.reason}`);
       return false;
