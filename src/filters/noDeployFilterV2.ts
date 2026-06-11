@@ -15,6 +15,10 @@ export interface FilterCriteria {
   marketCap: number;
   /** Set of data source names that had successful fetches (e.g. 'holders', 'transactions', 'liquidity') */
   dataAvailable?: Set<string>;
+  /** Phase 85 — Anti-Scam & Rug Detection */
+  rugProbability?: number;
+  bundlerRisk?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  concentrationRisk?: number;
 }
 
 export interface FilterResult {
@@ -92,6 +96,22 @@ export class NoDeployFilterV2 {
 
     if (criteria.bundlerScore > 0.1 && criteria.bundlerScore <= 0.3) {
       warnings.push('elevated bundler activity');
+    }
+
+    if (criteria.rugProbability != null && criteria.rugProbability > 60) {
+      rejectReasons.push(`rugProbability ${criteria.rugProbability}% > 60%`);
+    }
+
+    if (criteria.bundlerRisk === 'CRITICAL') {
+      rejectReasons.push('bundler risk CRITICAL');
+    }
+
+    if (criteria.concentrationRisk != null && criteria.concentrationRisk > 80) {
+      rejectReasons.push(`concentration risk ${criteria.concentrationRisk}% > 80%`);
+    }
+
+    if (criteria.concentrationRisk != null && criteria.concentrationRisk > 50 && criteria.concentrationRisk <= 80) {
+      warnings.push(`high concentration risk (${criteria.concentrationRisk}%)`);
     }
 
     const passed = rejectReasons.length === 0;

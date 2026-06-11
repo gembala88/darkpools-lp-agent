@@ -119,6 +119,12 @@ NARRATIVE QUALITY (your main judgment call):
 
 POOL MEMORY: Past losses or problems → strong skip signal.
 
+SCAM RISK (from candidate scam field):
+- rug > 60% → SKIP. High rug probability is a hard reject signal.
+- bundler = CRITICAL → SKIP. Coordinated bundler buys detected.
+- concentration > 80% → SKIP. Wallet concentration too dangerous.
+- bundler = HIGH or concentration > 50% → strong caution signal; deploy only if other metrics exceptional.
+
 DEPLOY RULES:
 - COMPOUNDING: Use the deploy amount from the goal EXACTLY. Do NOT default to a smaller number.
 - strategy = ${config.strategy.strategy} — always use this exact value, never change it.

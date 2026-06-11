@@ -25,6 +25,7 @@ import { SelfLearningEngine } from './selfLearningEngine.js';
 import { DynamicWeightEngine } from './dynamicWeightEngine.js';
 import { CandleIntelligenceEngine } from './candleIntelligenceEngine.js';
 import { MarketPsychologyEngine } from './marketPsychologyEngine.js';
+import { ScamDetectionEngine } from './scamDetectionEngine.js';
 
 export { BaseEngine, type EngineConfig, type EngineResult } from './baseEngine.js';
 export { TxMomentumEngine } from './txMomentumEngine.js';
@@ -54,6 +55,8 @@ export { SelfLearningEngine } from './selfLearningEngine.js';
 export { DynamicWeightEngine } from './dynamicWeightEngine.js';
 export { CandleIntelligenceEngine } from './candleIntelligenceEngine.js';
 export { MarketPsychologyEngine } from './marketPsychologyEngine.js';
+export { ScamDetectionEngine } from './scamDetectionEngine.js';
+export type { BundlerRisk, FakeVolumeRisk, ScamResult } from './scamDetectionEngine.js';
 export type { DeploymentDecision } from './deploymentDecisionEngine.js';
 export type { RebalanceAction } from './rebalanceEngine.js';
 export type { VolatilityCategory } from './volatilityEngine.js';
@@ -87,6 +90,7 @@ export const engines = {
   dynamicWeight: new DynamicWeightEngine(),
   candleIntelligence: new CandleIntelligenceEngine(),
   marketPsychology: new MarketPsychologyEngine(),
+  scamDetection: new ScamDetectionEngine(),
 } as const;
 
 export type Engines = typeof engines;

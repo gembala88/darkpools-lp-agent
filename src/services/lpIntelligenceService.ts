@@ -9,6 +9,8 @@ import { engines } from '../engines/index.js';
 import { CandleIntelligenceEngine } from '../engines/candleIntelligenceEngine.js';
 import { MarketPsychologyEngine } from '../engines/marketPsychologyEngine.js';
 import { DeploymentMemoryEngine } from '../engines/deploymentMemoryEngine.js';
+import { ScamDetectionEngine } from '../engines/scamDetectionEngine.js';
+import type { ScamResult } from '../engines/scamDetectionEngine.js';
 import { aiEngines } from '../ai/index.js';
 import type { AIWeights } from '../ai/dynamicWeightEngine.js';
 
@@ -48,6 +50,12 @@ export interface MasterLPOutput {
   marketPsychologyScore?: number;
   deploymentMemoryScore?: number;
   candleTrend?: string;
+  /** Phase 85 */
+  rugProbability?: number;
+  bundlerRisk?: string;
+  concentrationRisk?: number;
+  liquidityAgeRisk?: string;
+  fakeVolumeRisk?: string;
 }
 
 export class LPIntelligenceService {
@@ -62,6 +70,7 @@ export class LPIntelligenceService {
   private candleEngine: CandleIntelligenceEngine;
   private psychEngine: MarketPsychologyEngine;
   private deployMemEngine: DeploymentMemoryEngine;
+  private scamEngine: ScamDetectionEngine;
 
   constructor() {
     this.marketData = new MarketDataService();
@@ -72,6 +81,7 @@ export class LPIntelligenceService {
     this.candleEngine = new CandleIntelligenceEngine();
     this.psychEngine = new MarketPsychologyEngine();
     this.deployMemEngine = engines.deploymentMemory as DeploymentMemoryEngine;
+    this.scamEngine = engines.scamDetection as ScamDetectionEngine;
     this.logger = new Logger('LPIntelligence');
     this.telemetry = new TelemetryService();
   }
@@ -151,6 +161,16 @@ export class LPIntelligenceService {
       });
       lpAlphaScore = deployMemResult.score;
 
+      const scamResult = await this.scamEngine.evaluate({
+        poolAddress, tokenMint, tokenAgeHours: options?.tokenAgeHours, marketCap: options?.marketCap,
+      });
+      const scamMeta = scamResult.metadata as Record<string, unknown>;
+      const rugProbability = (scamMeta.rugProbability as number) ?? 0;
+      const bundlerRisk = (scamMeta.bundlerRisk as string) ?? 'LOW';
+      const concentrationRisk = (scamMeta.concentrationRisk as number) ?? 0;
+      const liquidityAgeRisk = (scamMeta.liquidityAgeRisk as string) ?? 'SAFE';
+      const fakeVolumeRisk = (scamMeta.fakeVolumeRisk as string) ?? 'LOW';
+
       const aiResults = await Promise.allSettled([
         aiEngines.poolActivity.evaluate({ poolAddress, tokenMint: tokenMint, ...options }).then(r => ({ engine: 'poolActivity', ...r })),
         aiEngines.accumulation.evaluate({ poolAddress, tokenMint: tokenMint, ...options }).then(r => ({ engine: 'accumulation', ...r })),
@@ -211,6 +231,9 @@ export class LPIntelligenceService {
         tokenAgeHours: options?.tokenAgeHours ?? 0,
         marketCap: options?.marketCap ?? 0,
         dataAvailable,
+        rugProbability,
+        bundlerRisk: bundlerRisk as any,
+        concentrationRisk,
       };
 
       const filterResult = this.noDeployFilter.evaluate(filterCriteria);
@@ -282,6 +305,11 @@ export class LPIntelligenceService {
         marketPsychologyScore: psychScore,
         deploymentMemoryScore: deployMemResult.score,
         candleTrend: trendState,
+        rugProbability,
+        bundlerRisk,
+        concentrationRisk,
+        liquidityAgeRisk,
+        fakeVolumeRisk,
       };
     } catch (error) {
       this.logger.error(`Evaluation failed: ${error instanceof Error ? error.message : String(error)}`);

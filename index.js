@@ -606,6 +606,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
           n?.narrative ? `  narrative_untrusted: ${sanitizeUntrustedPromptText(n.narrative, 500)}` : `  narrative_untrusted: none`,
           mem ? `  memory_untrusted: ${sanitizeUntrustedPromptText(mem, 500)}` : null,
           aiMap[pool.pool] ? `  ai: regime=${aiMap[pool.pool].marketRegime} | whale=${aiMap[pool.pool].whaleExitProb?.toFixed(1)}% | chief=${aiMap[pool.pool].aiChiefRecommendation}` : null,
+          aiMap[pool.pool]?.rugProbability != null ? `  scam: rug=${aiMap[pool.pool].rugProbability}% | bundler=${aiMap[pool.pool].bundlerRisk} | concentration=${aiMap[pool.pool].concentrationRisk}%` : null,
         ].filter(Boolean).join("\n");
       } else {
         const gmgnPriceLine = pool.gmgn_price_action
@@ -623,6 +624,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
           n?.narrative ? `  narrative_untrusted: ${sanitizeUntrustedPromptText(n.narrative, 500)}` : `  narrative_untrusted: none`,
           mem ? `  memory_untrusted: ${sanitizeUntrustedPromptText(mem, 500)}` : null,
           aiMap[pool.pool] ? `  ai: regime=${aiMap[pool.pool].marketRegime} | whale=${aiMap[pool.pool].whaleExitProb?.toFixed(1)}% | chief=${aiMap[pool.pool].aiChiefRecommendation}` : null,
+          aiMap[pool.pool]?.rugProbability != null ? `  scam: rug=${aiMap[pool.pool].rugProbability}% | bundler=${aiMap[pool.pool].bundlerRisk} | concentration=${aiMap[pool.pool].concentrationRisk}%` : null,
         ].filter(Boolean).join("\n");
       }
 
@@ -692,12 +694,13 @@ STEPS:
    Age: <x>h
 
    AUDIT
-   Top10: <x>%
-   Bots: <x>%
-   Fees paid: <x> SOL
-   Smart wallets: <names or none>
+    Top10: <x>%
+    Bots: <x>%
+    Fees paid: <x> SOL
+    Smart wallets: <names or none>
+    Rug: <x>% | Bundler: <level> | Concentration: <x>%
 
-   WHY THIS WON
+    WHY THIS WON
    <2-4 concise sentences on why this pool won, key risks, and why it still beat the alternatives>
 5. If no pool qualifies, report in this exact format instead:
    ⛔ NO DEPLOY
