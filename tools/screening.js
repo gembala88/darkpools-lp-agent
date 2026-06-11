@@ -157,12 +157,19 @@ function getRawPoolScreeningRejectReason(pool, s) {
  */
 async function findMeteoraDlmmPool(mint) {
   try {
-    const url = `https://dlmm-api.meteora.ag/pair/all_with_pagination?token=${mint}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const pools = data?.pairs ?? [];
-    return pools.length > 0 ? pools[0] : null;
+    const filters = ["pool_type=dlmm"].filter(Boolean).join("&&");
+    const data = await fetchPoolDiscoveryPage({
+      page_size: 50,
+      filters,
+      timeframe: "24h",
+      category: "all",
+    });
+    const raw = Array.isArray(data.data) ? data.data : [];
+    const match = raw.find(p => p.token_x?.address === mint || p.token_y?.address === mint);
+    if (match) {
+      return { pool_address: match.pool_address, ...match };
+    }
+    return null;
   } catch {
     return null;
   }
@@ -566,47 +573,78 @@ export async function discoverPools({
  */
 async function discoverFromMeteora() {
   try {
-    const url = "https://dlmm-api.meteora.ag/pair/all_with_pagination?page=0&limit=100&sort_key=volume&order_by=desc";
-    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const pairs = Array.isArray(data?.pairs) ? data.pairs : [];
     const SOL_MINT = "So11111111111111111111111111111111111111112";
-    const solPairs = pairs.filter(p => p.mint_x === SOL_MINT || p.mint_y === SOL_MINT);
-    const pools = solPairs.map(p => {
-      const baseMint = p.mint_x === SOL_MINT ? p.mint_y : p.mint_x;
-      const tokens = (p.name || "").split("-");
-      const baseSymbol = p.mint_x === SOL_MINT ? tokens[1] || baseMint.slice(0, 4) : tokens[0] || baseMint.slice(0, 4);
-      return {
-        pool: p.address,
-        name: p.name || `${baseSymbol}-SOL`,
-        base: { symbol: baseSymbol, mint: baseMint, organic: null, warnings: 0 },
-        quote: { symbol: "SOL", mint: SOL_MINT },
-        pool_type: "dlmm",
-        bin_step: p.bin_step,
-        fee_pct: null,
-        tvl: p.liquidity || 0,
-        active_tvl: p.liquidity || 0,
-        fee_window: null,
-        volume_window: p.trade_volume_24h || 0,
-        fee_active_tvl_ratio: p.fees_24h && p.liquidity ? p.fees_24h / p.liquidity : null,
-        volatility: null,
-        holders: null,
-        mcap: null,
-        token_age_hours: null,
-        dev: null,
-        launchpad: null,
-        price: null,
-        price_change_pct: null,
-        dex_source: false,
-        meteora_found: true,
-        verified_dlmm: true,
-        dlmm_liquidity: p.liquidity || 0,
-        dlmm_volume_24h: p.trade_volume_24h || 0,
-        dlmm_fees_24h: p.fees_24h || 0,
-        dlmm_apr: p.apr || null,
-      };
+    const filters = ["pool_type=dlmm"].filter(Boolean).join("&&");
+    const data = await fetchPoolDiscoveryPage({
+      page_size: 100,
+      filters,
+      timeframe: "24h",
+      category: "all",
     });
+    const rawPools = Array.isArray(data.data) ? data.data : [];
+
+    // Filter to SOL pairs (token_x or token_y is SOL)
+    const solPools = rawPools.filter(p => {
+      const tx = p.token_x?.address || "";
+      const ty = p.token_y?.address || "";
+      return tx === SOL_MINT || ty === SOL_MINT;
+    });
+
+    if (rawPools.length === 0) {
+      // Fallback: try the old endpoint with stricter filters
+      const fallback = await fetchPoolDiscoveryPage({
+        page_size: 100,
+        filters: "pool_type=dlmm",
+        timeframe: "1h",
+        category: "trending",
+      });
+      const fbRaw = Array.isArray(fallback.data) ? fallback.data : [];
+      const fbSol = fbRaw.filter(p => (p.token_x?.address || "") === SOL_MINT || (p.token_y?.address || "") === SOL_MINT);
+      fbSol.forEach(p => rawPools.push(p));
+      fbSol.forEach(p => solPools.push(p));
+    }
+
+    // Filter out dead pools, sort by volume descending, take top 100
+    const pools = solPools
+      .filter(p => {
+        const tvl = Number(p.tvl || p.active_tvl || 0);
+        const vol = Number(p.volume || 0);
+        return tvl > 0 && vol > 0;
+      })
+      .sort((a, b) => (b.volume || 0) - (a.volume || 0))
+      .slice(0, 100)
+      .map(p => {
+        const isSolX = p.token_x?.address === SOL_MINT;
+        const base = isSolX ? p.token_y : p.token_x;
+        const baseSymbol = base?.symbol || (base?.address || "").slice(0, 4);
+        return {
+          pool: p.pool_address,
+          name: `${baseSymbol}-SOL`,
+          base: { symbol: baseSymbol, mint: base?.address, organic: Math.round(base?.organic_score || 0), warnings: base?.warnings?.length || 0 },
+          quote: { symbol: "SOL", mint: SOL_MINT },
+          pool_type: "dlmm",
+          bin_step: Number(p.dlmm_params?.bin_step) || null,
+          fee_pct: Number(p.fee_pct) || null,
+          tvl: Math.round(Number(p.tvl || p.active_tvl || 0)),
+          active_tvl: Math.round(Number(p.active_tvl || p.tvl || 0)),
+          fee_window: null,
+          volume_window: Math.round(Number(p.volume || 0)),
+          fee_active_tvl_ratio: Number(p.fee_active_tvl_ratio) || null,
+          volatility: Number(p.volatility) || null,
+          volatility_timeframe: "30m",
+          holders: Number(p.base_token_holders || 0),
+          mcap: Math.round(Number(base?.market_cap || 0)),
+          token_age_hours: base?.created_at ? Math.floor((Date.now() - base.created_at) / 3_600_000) : null,
+          dev: base?.dev || null,
+          launchpad: base?.launchpad || null,
+          price: Number(p.pool_price) || null,
+          price_change_pct: Number(p.pool_price_change_pct) || null,
+          dex_source: false,
+          meteora_found: true,
+          verified_dlmm: true,
+        };
+      });
+
     log("discovery", `source=meteora_dlmm count=${pools.length} (real DLMM pools)`);
     return { pools, source: "meteora" };
   } catch (err) {
