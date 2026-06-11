@@ -602,10 +602,6 @@ export async function getActiveBin({ pool_address }) {
 
   throw lastError || new Error(`getActiveBin failed after ${RPC_FALLBACKS.length} attempts`);
 }
-  }
-
-  throw lastError || new Error("getActiveBin failed on all RPC endpoints");
-}
 
 // ─── Deploy Position ───────────────────────────────────────────
 export async function deployPosition({
