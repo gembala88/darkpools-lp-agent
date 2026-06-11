@@ -146,6 +146,28 @@ function getRawPoolScreeningRejectReason(pool, s) {
   return null;
 }
 
+/**
+ * Check if a token has a corresponding Meteora DLMM pool.
+ * DexScreener pools are regular AMM — get_active_bin FAILS on them.
+ * If found, returns the Meteora pool data to replace the DexScreener entry.
+ */
+async function findMeteoraDlmmPool(mint) {
+  try {
+    const url = `${POOL_DISCOVERY_BASE}/pools?` +
+      `page_size=1` +
+      `&filter_by=${encodeURIComponent(`base_token_mint=${mint}`)}` +
+      `&timeframe=5m` +
+      `&category=trending`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const pools = data?.pools ?? data?.data ?? [];
+    return pools.length > 0 ? pools[0] : null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchDiscordSignalCandidates() {
   const res = await fetch(`${config.api.url}/signals/discord/candidates`, {
     headers: config.api.publicApiKey ? { "x-api-key": config.api.publicApiKey } : {},
@@ -919,6 +941,33 @@ export async function getTopCandidates({ limit = 10 } = {}) {
     })
     .sort((a, b) => scoreCandidate(b) - scoreCandidate(a))
     .slice(0, limit);
+
+  // Phase 89c — Verify DexScreener pools are actually Meteora DLMM pools
+  // DexScreener returns regular AMM pools; get_active_bin fails on non-DLMM pools
+  if (eligible.length > 0) {
+    const dlmmValid = [];
+    for (const pool of eligible) {
+      if (!pool.dex_source) {
+        dlmmValid.push(pool);
+        continue;
+      }
+      const mint = pool.base?.mint;
+      if (!mint) {
+        pushFilteredReason(filteredOut, pool, "no base mint");
+        continue;
+      }
+      const meteoraPool = await findMeteoraDlmmPool(mint);
+      if (meteoraPool) {
+        pool.pool = meteoraPool.pool_address;
+        pool.meteora_found = true;
+        dlmmValid.push(pool);
+      } else {
+        pushFilteredReason(filteredOut, pool, "no Meteora DLMM pool found");
+        log("screening", `[SCREENING] skipped ${pool.name} — no Meteora DLMM pool found`);
+      }
+    }
+    eligible.splice(0, eligible.length, ...dlmmValid);
+  }
 
   // Multi-source enrichment: cross-reference Birdeye, Jupiter, DexScreener
   if (eligible.length > 0) {
