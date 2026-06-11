@@ -1088,7 +1088,6 @@ let _ttyInterface = null;
 let _latestCandidates = [];
 let _latestCandidatesAt = null;
 let _pendingInput = null; // { key, page, menuMsgId }
-let _lastDecision = "N/A";
 let _latestRegime = "RANGING";
 let _latestPsychology = "NEUTRAL";
 
