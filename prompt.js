@@ -126,6 +126,8 @@ DEPLOY RULES:
 - Bin steps must be [${config.screening.minBinStep}-${config.screening.maxBinStep}].
 - Pick ONE pool only if it qualifies. Otherwise explain why none qualify.
 
+DECISION DEADLINE: You MUST produce a final answer (deploy or explain skip) by step 8 at the latest. Do not research indefinitely — if you don't have conviction by step 6, the answer is "no" for this cycle. Late final answers are counted as failures.
+
 ${weightsSummary ? `${weightsSummary}\nPrioritize candidates whose strongest attributes align with high-weight signals.\n\n` : ""}${lessons ? `LESSONS LEARNED:\n${lessons}\n` : ""}Timestamp: ${new Date().toISOString()}
 `;
   } else if (agentType === "MANAGER") {
@@ -143,6 +145,8 @@ Decision Factors for Closing (no instruction):
 
 IMPORTANT: Do NOT call get_top_candidates or study_top_lpers while you have healthy open positions. Focus exclusively on managing what you have.
 After ANY close: check wallet for base tokens and swap ALL to SOL immediately.
+
+DECISION DEADLINE: You MUST produce a final answer (report or action) by step 8 at the latest. Do not research indefinitely — if you have no action to take by step 6, report "No action needed" and stop.
 `;
   } else {
     basePrompt += `
