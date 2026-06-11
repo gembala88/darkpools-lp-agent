@@ -176,14 +176,31 @@ export async function sendToChannel(text, type = "info") {
   if (!TOKEN || _channelNotificationLevel === "off") return;
   if (type === "deploy" && _channelNotificationLevel === "errors") return;
   if (type === "info" && _channelNotificationLevel !== "all") return;
-  const channelId = process.env.TELEGRAM_CHANNEL_ID || chatId;
-  if (!channelId) return;
+
+  // Resolve channel ID: env var first, then user-config fallback
+  let channelId = process.env.TELEGRAM_CHANNEL_ID || null;
+  if (!channelId) {
+    try {
+      if (fs.existsSync(USER_CONFIG_PATH)) {
+        const cfg = JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"));
+        channelId = cfg.telegramChannelId || null;
+      }
+    } catch { /* ignore */ }
+  }
+  // Final fallback to primary chat
+  if (!channelId) channelId = chatId;
+  if (!channelId) {
+    log("telegram_warn", "channel not configured — set TELEGRAM_CHANNEL_ID in .env or telegramChannelId in user-config.json");
+    return;
+  }
+
   try {
     await fetch(`${BASE}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: channelId, text: String(text).slice(0, 4096) }),
     });
+    log("telegram", `channel: ${text.slice(0, 80)}`);
   } catch { /* ignore */ }
 }
 

@@ -1046,6 +1046,13 @@ function computeBinsBelow(volatility) {
 const isTTY = process.stdin.isTTY;
 let cronStarted = false;
 let busy = false;
+const READ_ONLY_COMMANDS = [
+  "/mode", "/filters", "/agent", "/wallet", "/status",
+  "/positions", "/help", "/config", "/candidates",
+  "/hive", "/channel", "/pool", "/briefing", "/screen",
+  "/setmodel", "/setrpc"
+];
+
 const _telegramQueue = []; // queued messages received while agent was busy
 const sessionHistory = []; // persists conversation across REPL turns
 const MAX_HISTORY = 20;    // keep last 20 messages (10 exchanges)
@@ -1601,9 +1608,21 @@ function refreshPrompt() {
 }
 
 async function drainTelegramQueue() {
-  while (_telegramQueue.length > 0 && !_managementBusy && !_screeningBusy && !busy) {
-    const queued = _telegramQueue.shift();
-    await telegramHandler(queued);
+  while (_telegramQueue.length > 0) {
+    const queued = _telegramQueue[0];
+    const text = queued?.text?.trim() || "";
+    const isReadOnly = READ_ONLY_COMMANDS.some(
+      cmd => text === cmd || text.startsWith(cmd + " ")
+    );
+    if (isReadOnly) {
+      _telegramQueue.shift();
+      await telegramHandler(queued);
+    } else if (!_managementBusy && !_screeningBusy && !busy) {
+      _telegramQueue.shift();
+      await telegramHandler(queued);
+    } else {
+      break;
+    }
   }
 }
 
@@ -1720,13 +1739,20 @@ async function telegramHandler(msg) {
     return;
   }
   if (_managementBusy || _screeningBusy || busy) {
-    if (_telegramQueue.length < 5) {
+    const isReadOnly = READ_ONLY_COMMANDS.some(
+      cmd => text === cmd || text.startsWith(cmd + " ")
+    );
+    if (isReadOnly) {
+      // Let read-only commands through immediately even when busy
+      // fall through to command handlers below
+    } else if (_telegramQueue.length < 5) {
       _telegramQueue.push(msg);
       sendMessage(`⏳ Queued (${_telegramQueue.length} in queue): "${text.slice(0, 60)}"`).catch(() => {});
+      return;
     } else {
       sendMessage("Queue is full (5 messages). Wait for the agent to finish.").catch(() => {});
+      return;
     }
-    return;
   }
 
   if (text === "/briefing") {
