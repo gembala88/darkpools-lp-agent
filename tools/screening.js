@@ -969,26 +969,38 @@ async function enrichCandidates(pools, s) {
           const holders = Array.isArray(holderData) ? holderData : (holderData?.holders ?? []);
           console.log(`[enrich-debug] ${mint} holders count: ${holders?.length ?? 0}`);
           if (holders.length > 0) {
-            const withPct = holders.map(h => ({
-              address: String(h.address ?? ''),
-              amount: Number(h.amount ?? h.balance ?? 0),
-              pct: Number(h.percentage ?? h.pct ?? 0),
-            }));
+            // Debug: log first holder to see actual field names
+            console.log('[holder-sample]', JSON.stringify(holders[0]));
+
+            // Jupiter DatAPI returns amount (raw lamports/ui_amount) — no percentage field
+            // Calculate percentages from raw amounts
+            const totalAmount = holders.reduce((sum, h) => sum + Number(h.amount ?? h.ui_amount ?? h.balance ?? 0), 0);
+            console.log('[bot-calc]', mint, 'totalAmount:', totalAmount, 'holderCount:', holders.length);
+
+            const withPct = holders.map(h => {
+              const amt = Number(h.amount ?? h.ui_amount ?? h.balance ?? 0);
+              return {
+                address: String(h.address ?? ''),
+                amount: amt,
+                pct: totalAmount > 0 ? (amt / totalAmount) * 100 : 0,
+              };
+            });
 
             // Top 10 holders percentage
             const sorted = [...withPct].sort((a, b) => b.pct - a.pct);
             const top10Sum = sorted.slice(0, 10).reduce((s, h) => s + h.pct, 0);
             overlay.topHoldersPct = Math.round(top10Sum * 100) / 100;
 
-            // Bot estimate: holders with tiny amounts (< 0.1%) or identical amounts
+            // Bot estimate: holders with < 0.05% share (very small wallets) or identical amounts
             const amountCounts = {};
             withPct.forEach(h => { amountCounts[h.amount] = (amountCounts[h.amount] || 0) + 1; });
             const duplicateAmounts = new Set(
               Object.entries(amountCounts).filter(([, c]) => c > 2).map(([a]) => Number(a))
             );
-            const potentialBots = withPct.filter(h => h.pct < 0.1 || duplicateAmounts.has(h.amount));
+            const potentialBots = withPct.filter(h => h.pct < 0.05 || duplicateAmounts.has(h.amount));
             overlay.botHoldersPct = Math.round((potentialBots.length / withPct.length) * 100);
 
+            console.log('[bot-calc]', mint, 'top1 holder pct:', sorted[0]?.pct, 'top10:', top10Sum, 'bots:', overlay.botHoldersPct);
             log("enrichment", `mint=${mint} botPct CALCULATED from holders: top10=${overlay.topHoldersPct}% bots=${overlay.botHoldersPct}% (${potentialBots.length}/${withPct.length} wallets)`);
           }
         }
