@@ -338,6 +338,14 @@ export function reloadScreeningThresholds() {
     if (fresh.maxBotHoldersPct  != null) s.maxBotHoldersPct = fresh.maxBotHoldersPct;
     if (fresh.allowedLaunchpads !== undefined) s.allowedLaunchpads = fresh.allowedLaunchpads;
     if (fresh.blockedLaunchpads !== undefined) s.blockedLaunchpads = fresh.blockedLaunchpads;
+    // Management and risk overrides
+    if (fresh.maxPositions != null) config.risk.maxPositions = fresh.maxPositions;
+    if (fresh.stopLossPct != null) config.management.stopLossPct = fresh.stopLossPct;
+    if (fresh.deployAmountSol != null) config.management.deployAmountSol = fresh.deployAmountSol;
+    if (fresh.gasReserve != null) config.management.gasReserve = fresh.gasReserve;
+    if (fresh.positionSizePct != null) config.management.positionSizePct = fresh.positionSizePct;
+    if (fresh.minSolToOpen != null) config.management.minSolToOpen = fresh.minSolToOpen;
+    if (fresh.maxDeployAmount != null) config.risk.maxDeployAmount = fresh.maxDeployAmount;
     const minBinsBelow = numericConfig(fresh.minBinsBelow) ?? config.strategy.minBinsBelow;
     const maxBinsBelow = numericConfig(fresh.maxBinsBelow) ?? numericConfig(fresh.binsBelow) ?? config.strategy.maxBinsBelow;
     const defaultBinsBelow = numericConfig(fresh.defaultBinsBelow) ?? numericConfig(fresh.binsBelow) ?? config.strategy.defaultBinsBelow ?? maxBinsBelow;

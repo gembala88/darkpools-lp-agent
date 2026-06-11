@@ -83,7 +83,7 @@ const RPC_FALLBACKS = [
   process.env.RPC_URL,
   "https://api.mainnet-beta.solana.com",
   "https://rpc.ankr.com/solana",
-].filter(Boolean);
+].filter(Boolean).filter(url => !url.includes('pump.helius'));
 
 function getConnection() {
   if (!_connection) {
@@ -104,10 +104,14 @@ function rotateRpc() {
 
 function getWallet() {
   if (!_wallet) {
-    if (!process.env.WALLET_PRIVATE_KEY) {
-      throw new Error("WALLET_PRIVATE_KEY not set");
+    const key = process.env.WALLET_PRIVATE_KEY;
+    if (!key) {
+      throw new Error(
+        "WALLET_PRIVATE_KEY not set — check .env file or user-config.json walletKey field. " +
+        "Ensure envcrypt.js loaded successfully."
+      );
     }
-    _wallet = Keypair.fromSecretKey(bs58.decode(process.env.WALLET_PRIVATE_KEY));
+    _wallet = Keypair.fromSecretKey(bs58.decode(key));
     log("init", `Wallet: ${_wallet.publicKey.toString()}`);
   }
   return _wallet;
