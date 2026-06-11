@@ -949,6 +949,40 @@ async function enrichCandidates(pools, s) {
       } catch {}
     }
 
+    // Calculate botPct/top10Pct from holder data when Jupiter audit is unavailable
+    if (overlay.botHoldersPct == null || overlay.topHoldersPct == null) {
+      try {
+        const holderRes = await fetch(`${DATAPI_JUP}/v1/holders/${mint}?limit=100`);
+        if (holderRes.ok) {
+          const holderData = await holderRes.json();
+          const holders = Array.isArray(holderData) ? holderData : (holderData?.holders ?? []);
+          if (holders.length > 0) {
+            const withPct = holders.map(h => ({
+              address: String(h.address ?? ''),
+              amount: Number(h.amount ?? h.balance ?? 0),
+              pct: Number(h.percentage ?? h.pct ?? 0),
+            }));
+
+            // Top 10 holders percentage
+            const sorted = [...withPct].sort((a, b) => b.pct - a.pct);
+            const top10Sum = sorted.slice(0, 10).reduce((s, h) => s + h.pct, 0);
+            overlay.topHoldersPct = Math.round(top10Sum * 100) / 100;
+
+            // Bot estimate: holders with tiny amounts (< 0.1%) or identical amounts
+            const amountCounts = {};
+            withPct.forEach(h => { amountCounts[h.amount] = (amountCounts[h.amount] || 0) + 1; });
+            const duplicateAmounts = new Set(
+              Object.entries(amountCounts).filter(([, c]) => c > 2).map(([a]) => Number(a))
+            );
+            const potentialBots = withPct.filter(h => h.pct < 0.1 || duplicateAmounts.has(h.amount));
+            overlay.botHoldersPct = Math.round((potentialBots.length / withPct.length) * 100);
+
+            log("enrichment", `mint=${mint} botPct CALCULATED from holders: top10=${overlay.topHoldersPct}% bots=${overlay.botHoldersPct}% (${potentialBots.length}/${withPct.length} wallets)`);
+          }
+        }
+      } catch { /* holder calc failed — enrichment will show ? */ }
+    }
+
     // Confidence scoring based on which enrichment sources provided data
     overlay.holdersConfidence = overlay.birdeyeHolders != null && overlay.birdeyeHolders > 0 ? 'HIGH'
       : overlay.jupiterHolders != null && overlay.jupiterHolders > 0 ? 'MEDIUM'

@@ -103,6 +103,7 @@ export class MarketDataService {
         tags: h.tags ?? [],
       }));
       const saved = await repositories.holder.bulkUpsert(holderData);
+      if (saved > 0) await this.saveHolderSnapshot(mint, holders.length);
       console.log(`  [holders] ${mint.slice(0, 8)}... fetched=${holders.length} mapped=${holderData.length} saved=${saved}`);
       return saved;
     } catch (error) {
@@ -129,6 +130,7 @@ export class MarketDataService {
             tags: [],
           }));
           const saved = await repositories.holder.bulkUpsert(holderData);
+          if (saved > 0) await this.saveHolderSnapshot(mint, items.length);
           console.log(`  [holders] ${mint.slice(0, 8)}... Jupiter fallback fetched=${items.length} saved=${saved}`);
           return saved;
         } catch (fallbackError) {
@@ -138,6 +140,20 @@ export class MarketDataService {
       }
       throw new Error(`Failed to fetch holders for ${mint}: ${msg}`);
     }
+  }
+
+  private async saveHolderSnapshot(mint: string, count: number): Promise<void> {
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      const snapshotPath = path.join(process.cwd(), 'data', 'holder-snapshots.json');
+      let snapshots: Record<string, { count: number; timestamp: number }> = {};
+      if (fs.existsSync(snapshotPath)) {
+        snapshots = JSON.parse(fs.readFileSync(snapshotPath, 'utf8'));
+      }
+      snapshots[mint] = { count, timestamp: Date.now() };
+      fs.writeFileSync(snapshotPath, JSON.stringify(snapshots, null, 2));
+    } catch { /* snapshot persistence is best-effort */ }
   }
 
   async fetchAndStoreTransactions(mint: string, poolAddress: string): Promise<number> {

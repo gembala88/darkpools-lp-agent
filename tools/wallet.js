@@ -64,6 +64,23 @@ export async function getWalletBalances() {
     return { wallet: null, sol: 0, sol_price: 0, sol_usd: 0, usdc: 0, tokens: [], total_usd: 0, error: "Wallet not configured" };
   }
 
+  // DRY RUN: return virtual balance instead of real wallet
+  if (process.env.DRY_RUN === 'true') {
+    const virtualBalance = config.management.dryRunVirtualBalance || 2.0;
+    log("wallet", `DRY RUN — returning virtual balance: ${virtualBalance} SOL`);
+    return {
+      wallet: walletAddress,
+      sol: virtualBalance,
+      sol_price: 200,
+      sol_usd: virtualBalance * 200,
+      usdc: 0,
+      tokens: [],
+      total_usd: virtualBalance * 200,
+      virtual: true,
+      label: "virtual/simulated",
+    };
+  }
+
   const HELIUS_KEY = process.env.HELIUS_API_KEY;
   if (!HELIUS_KEY) {
     log("wallet_error", "HELIUS_API_KEY not set in .env");
