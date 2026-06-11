@@ -373,6 +373,7 @@ After executing, write a brief one-line result per position.
   } catch (error) {
     log("cron_error", `Management cycle failed: ${error.message}`);
     mgmtReport = `Management cycle failed: ${error.message}`;
+    sendToChannel(`❌ Error: Management cycle failed — ${error.message}`, "errors").catch(() => {});
   } finally {
     _managementBusy = false;
     if (!silent && telegramEnabled()) {
@@ -444,8 +445,10 @@ export async function runScreeningCycle({ silent = false } = {}) {
   try {
     // Reuse pre-fetched balance — no extra RPC call needed
     const currentBalance = preBalance;
-    const deployAmount = computeDeployAmount(currentBalance.sol);
-    log("cron", `Computed deploy amount: ${deployAmount} SOL (wallet: ${currentBalance.sol} SOL)`);
+    const isDryRun = process.env.DRY_RUN === 'true';
+    const effectiveBalance = isDryRun ? { sol: config.management.dryRunVirtualBalance || 2.0 } : currentBalance;
+    const deployAmount = computeDeployAmount(effectiveBalance.sol);
+    log("cron", `Computed deploy amount: ${deployAmount} SOL (wallet: ${effectiveBalance.sol} SOL${isDryRun ? ' virtual' : ''})`);
 
     // Load active strategy
     const activeStrategy = getActiveStrategy();
@@ -463,6 +466,10 @@ export async function runScreeningCycle({ silent = false } = {}) {
     const earlyFilteredExamples = topCandidates?.filtered_examples || [];
     const gmgnStageCounts = topCandidates?.stage_counts ?? null;
     const gmgnAllFiltered = topCandidates?.all_filtered ?? [];
+
+    if (candidates.length > 0) {
+      sendToChannel(`🔍 Screening: ${candidates.length} candidates found`, "info").catch(() => {});
+    }
 
     const allCandidates = [];
     for (const pool of candidates) {
@@ -527,6 +534,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
         reason: funnelBlock || combinedExamples || "All candidates filtered before deploy",
         rejected: combined.slice(0, 5).map((entry) => `${entry.name}: ${entry.reason}`),
       });
+      sendToChannel("🔍 Screening: No candidates — all filtered", "info").catch(() => {});
       return screenReport;
     }
 
@@ -746,6 +754,7 @@ IMPORTANT:
         summary: "LLM chose no deploy",
         reason: stripThink(content).slice(0, 500),
       });
+      sendToChannel("⛔ NO DEPLOY: LLM chose not to deploy any pool", "info").catch(() => {});
     } else if (!deploySucceeded) {
       appendDecision({
         type: "no_deploy",
@@ -753,10 +762,14 @@ IMPORTANT:
         summary: deployAttempted ? "Deploy attempt did not succeed" : "No successful deploy in screening cycle",
         reason: stripThink(content).slice(0, 500),
       });
+      if (deployAttempted) sendToChannel("⛔ NO DEPLOY: Deploy attempt did not succeed", "info").catch(() => {});
+    } else if (deploySucceeded) {
+      sendToChannel("✅ DEPLOY: Position deployed successfully", "deploy").catch(() => {});
     }
   } catch (error) {
     log("cron_error", `Screening cycle failed: ${error.message}`);
     screenReport = `Screening cycle failed: ${error.message}`;
+    sendToChannel(`❌ Error: Screening cycle failed — ${error.message}`, "errors").catch(() => {});
   } finally {
     _screeningBusy = false;
     if (!silent && telegramEnabled()) {
@@ -2154,7 +2167,7 @@ async function telegramHandler(msg) {
         `- Market regime: ${regime}`,
         `- Psychology: ${psychology}`,
         `- Wallet: ${masked}`,
-        `- Balance: ${wallet.sol ?? "?"} SOL`,
+        `- Balance: ${isDryRun ? (config.management.dryRunVirtualBalance || 2.0) + " SOL (virtual/simulated)" : (wallet.sol ?? "?") + " SOL"}`,
       ].join("\n")).catch(() => {});
     } catch (e) { await sendMessage(`Error: ${e.message}`).catch(() => {}); }
     return;
@@ -2334,6 +2347,7 @@ if (isMain && isTTY) {
   maybeRunMissedBriefing().catch(() => { });
 
   startPolling(telegramHandler);
+  setTimeout(() => sendToChannel("🔄 Agent started", "info").catch(() => {}), 5000);
 
   console.log(`
 Commands:
@@ -2549,6 +2563,7 @@ Focus on: hold duration, entry/exit timing, what win rates look like, whether sc
   startCronJobs();
   maybeRunMissedBriefing().catch(() => { });
   startPolling(telegramHandler);
+  setTimeout(() => sendToChannel("🔄 Agent started", "info").catch(() => {}), 5000);
   (async () => {
     try {
       await runScreeningCycle({ silent: false });

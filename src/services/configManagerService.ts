@@ -27,6 +27,24 @@ export class ConfigManagerService {
     this.logger = new Logger('ConfigManager');
   }
 
+  private getLockedFields(): string[] {
+    try {
+      const fs = require('fs') as typeof import('fs');
+      const path = require('path') as typeof import('path');
+      const configPath = path.join(process.cwd(), 'user-config.json');
+      if (fs.existsSync(configPath)) {
+        const data = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        return Array.isArray(data.configManagerLockedFields) ? data.configManagerLockedFields : [];
+      }
+    } catch { /* ignore */ }
+    return [];
+  }
+
+  private isLocked(key: string): boolean {
+    const locked = this.getLockedFields();
+    return locked.includes(key);
+  }
+
   private async cfg(): Promise<Record<string, unknown>> {
     if (!this._cfg) {
       // @ts-expect-error config.js is outside src/, no declaration file
@@ -152,6 +170,7 @@ export class ConfigManagerService {
   }
 
   private async adjustMaxBotHoldersPct(rugAvg: number): Promise<void> {
+    if (this.isLocked('maxBotHoldersPct')) { this.logger.debug('maxBotHoldersPct is locked — skipping'); return; }
     let val: number;
     let reason: string;
     if (rugAvg > 50) { val = 30; reason = `rug risk ${rugAvg}% > 50 — tightening bot filter`; }
@@ -161,6 +180,7 @@ export class ConfigManagerService {
   }
 
   private async adjustMinTvl(regime: string): Promise<void> {
+    if (this.isLocked('minTvl')) { this.logger.debug('minTvl is locked — skipping'); return; }
     let val: number;
     let reason: string;
     if (regime === 'PANIC') { val = 25000; reason = 'panic regime — higher TVL threshold'; }
@@ -171,6 +191,7 @@ export class ConfigManagerService {
   }
 
   private async adjustMinTokenFeesSol(regime: string): Promise<void> {
+    if (this.isLocked('minTokenFeesSol')) { this.logger.debug('minTokenFeesSol is locked — skipping'); return; }
     let val: number;
     let reason: string;
     if (regime === 'PANIC') { val = 5; reason = 'panic — very selective on fees'; }
@@ -180,6 +201,7 @@ export class ConfigManagerService {
   }
 
   private async adjustMaxPositions(regime: string): Promise<void> {
+    if (this.isLocked('maxPositions')) { this.logger.debug('maxPositions is locked — skipping'); return; }
     let val: number;
     let reason: string;
     if (regime === 'PANIC' || regime === 'DISTRIBUTION') { val = 1; reason = 'bearish regime — minimize exposure'; }
@@ -189,6 +211,7 @@ export class ConfigManagerService {
   }
 
   private async adjustStopLossPct(regime: string, whaleExit: number | null): Promise<void> {
+    if (this.isLocked('stopLossPct')) { this.logger.debug('stopLossPct is locked — skipping'); return; }
     let val: number;
     let reason: string;
     if (whaleExit !== null && whaleExit > 70) { val = -5; reason = `whaleExit ${whaleExit}% > 70 — tight stop`; }
@@ -198,6 +221,7 @@ export class ConfigManagerService {
   }
 
   private async adjustDeployAmountSol(regime: string): Promise<void> {
+    if (this.isLocked('deployAmountSol')) { this.logger.debug('deployAmountSol is locked — skipping'); return; }
     let val: number;
     let reason: string;
     if (regime === 'PANIC') { val = 0.2; reason = 'panic — minimum deploy'; }
@@ -208,6 +232,7 @@ export class ConfigManagerService {
   }
 
   private async adjustMinHolders(regime: string): Promise<void> {
+    if (this.isLocked('minHolders')) { this.logger.debug('minHolders is locked — skipping'); return; }
     let val: number;
     let reason: string;
     if (regime === 'PANIC') { val = 200; reason = 'panic — only established tokens'; }
@@ -304,6 +329,7 @@ Respond in JSON only: {"approved": true/false, "additional": ["suggestion1", "su
     // @ts-expect-error telegram.js is outside src/, no declaration file
     const tg = await import('../../telegram.js');
     const sendMessage = tg.sendMessage;
+    const sendToChannel = tg.sendToChannel;
 
     const lines: string[] = [];
     lines.push('🤖 Config Manager Update');
@@ -315,6 +341,7 @@ Respond in JSON only: {"approved": true/false, "additional": ["suggestion1", "su
       for (const c of this.currentChanges) {
         lines.push(`- ${c.key}: ${c.from} → ${c.to} (${c.reason})`);
       }
+      sendToChannel(`🤖 Config Manager: ${this.currentChanges.length} changes made`, 'info').catch(() => {});
     }
 
     if (this.noChanges.length > 0) {

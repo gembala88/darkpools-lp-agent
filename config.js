@@ -195,6 +195,7 @@ export const config = {
     pnlSanityMaxDiffPct:   u.pnlSanityMaxDiffPct   ?? 5,    // max allowed diff between reported and derived pnl % before ignoring a tick
     // SOL mode — positions, PnL, and balances reported in SOL instead of USD
     solMode:               u.solMode               ?? false,
+    dryRunVirtualBalance:  u.dryRunVirtualBalance  ?? 2.0, // simulated SOL balance in DRY RUN
   },
 
   // ─── Strategy Mapping ───────────────────
