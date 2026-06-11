@@ -13,6 +13,7 @@ import { ScamDetectionEngine } from '../engines/scamDetectionEngine.js';
 import type { ScamResult } from '../engines/scamDetectionEngine.js';
 import { aiEngines } from '../ai/index.js';
 import type { AIWeights } from '../ai/dynamicWeightEngine.js';
+import { agents } from '../agents/index.js';
 
 export interface MasterLPOutput {
   lpAlphaScore: number;
@@ -56,6 +57,16 @@ export interface MasterLPOutput {
   concentrationRisk?: number;
   liquidityAgeRisk?: string;
   fakeVolumeRisk?: string;
+  /** Phase 86-87 */
+  riskSignal?: string;
+  momentumSignal?: string;
+  whaleSignal?: string;
+  marketSignal?: string;
+  smartMoneySignal?: string;
+  narrativeSignal?: string;
+  chiefRecommendation?: string;
+  chiefConfidence?: number;
+  chiefSignals?: Array<{ agent: string; score: number; signal: string }>;
 }
 
 export class LPIntelligenceService {
@@ -217,6 +228,23 @@ export class LPIntelligenceService {
       const aiWarnings = (chiefMeta?.recommendation?.warnings ?? chiefMeta?.warnings ?? []) as string[];
       const chiefAction = (chiefMeta?.recommendation?.action ?? 'WATCHLIST') as string;
 
+      const hotPoolScore = Number(componentScores['hotPool'] ?? 50);
+      const capRotScore = Number(componentScores['capitalRotation'] ?? 50);
+
+      // Phase 86 — Specialized Agents
+      const riskAgentResult = agents.risk.evaluate({ rugProbability, concentrationRisk, bundlerRisk: bundlerRisk as any, liquidityAgeRisk: liquidityAgeRisk as any, riskScore: Number(componentScores['risk'] ?? 50) });
+      const momAgentResult = agents.momentum.evaluate({ txMomentumScore: Number(componentScores['txMomentum'] ?? 50), volumeAcceleration: 0, hotPoolScore, candleTrend: trendState });
+      const whaleAgentResult = agents.whale.evaluate({ whaleExitProbability: whaleResult ? (100 - whaleResult.score) : 50, smartMoneyScore: Number(componentScores['smartMoney'] ?? 50), top10Pct: concentrationRisk, concentrationRisk });
+      const marketAgentResult = agents.market.evaluate({ marketRegime: regime, marketPsychology: psychology, candleTrend: trendState, trendState });
+      const smAgentResult = agents.smartMoney.evaluate({ smartMoneyScore: Number(componentScores['smartMoney'] ?? 50), smartMoneyFlowScore: smFlowResult?.score ?? 50, capitalInflowScore: Number(componentScores['capitalInflow'] ?? 50), holderGrowthScore: Number(componentScores['holderGrowth'] ?? 50) });
+      const narrAgentResult = agents.narrative.evaluate({ narrativeScore: Number(componentScores['narrative'] ?? 50), capitalRotationScore: capRotScore, hotNarrative: options?.narrative ? 'WARM' : 'COLD' });
+
+      // Phase 87 — Chief AI
+      const agentChiefResult = agents.chiefAI.evaluate(
+        { risk: riskAgentResult, momentum: momAgentResult, whale: whaleAgentResult, market: marketAgentResult, smartMoney: smAgentResult, narrative: narrAgentResult },
+        regime,
+      );
+
       const filterCriteria: FilterCriteria = {
         lpAlphaScore,
         confidence,
@@ -310,6 +338,15 @@ export class LPIntelligenceService {
         concentrationRisk,
         liquidityAgeRisk,
         fakeVolumeRisk,
+        riskSignal: riskAgentResult.signal,
+        momentumSignal: momAgentResult.signal,
+        whaleSignal: whaleAgentResult.signal,
+        marketSignal: marketAgentResult.signal,
+        smartMoneySignal: smAgentResult.signal,
+        narrativeSignal: narrAgentResult.signal,
+        chiefRecommendation: agentChiefResult.recommendation,
+        chiefConfidence: agentChiefResult.confidence,
+        chiefSignals: agentChiefResult.signals,
       };
     } catch (error) {
       this.logger.error(`Evaluation failed: ${error instanceof Error ? error.message : String(error)}`);

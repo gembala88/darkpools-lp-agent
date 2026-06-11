@@ -77,12 +77,29 @@ async function getDLMM() {
 // (e.g. during screening-only tests).
 let _connection = null;
 let _wallet = null;
+let _workingRpcIndex = 0;
+
+const RPC_FALLBACKS = [
+  process.env.RPC_URL,
+  "https://api.mainnet-beta.solana.com",
+  "https://rpc.ankr.com/solana",
+].filter(Boolean);
 
 function getConnection() {
   if (!_connection) {
-    _connection = new Connection(process.env.RPC_URL, "confirmed");
+    const url = RPC_FALLBACKS[_workingRpcIndex] || RPC_FALLBACKS[0];
+    if (_workingRpcIndex > 0) log("rpc", `using fallback ${_workingRpcIndex}: ${url}`);
+    _connection = new Connection(url, "confirmed");
   }
   return _connection;
+}
+
+function rotateRpc() {
+  _connection = null;
+  poolCache.clear();
+  _workingRpcIndex = (_workingRpcIndex + 1) % RPC_FALLBACKS.length;
+  const url = RPC_FALLBACKS[_workingRpcIndex];
+  log("rpc", `rotated to RPC ${_workingRpcIndex}: ${url}`);
 }
 
 function getWallet() {
@@ -549,14 +566,26 @@ async function getPoolMetadata(poolAddress) {
 // ─── Get Active Bin ────────────────────────────────────────────
 export async function getActiveBin({ pool_address }) {
   pool_address = normalizeMint(pool_address);
-  const pool = await getPool(pool_address);
-  const activeBin = await pool.getActiveBin();
+  let lastError;
 
-  return {
-    binId: activeBin.binId,
-    price: pool.fromPricePerLamport(Number(activeBin.price)),
-    pricePerLamport: activeBin.price.toString(),
-  };
+  for (let attempt = 0; attempt < RPC_FALLBACKS.length; attempt++) {
+    try {
+      if (attempt > 0) rotateRpc();
+      const pool = await getPool(pool_address);
+      const activeBin = await pool.getActiveBin();
+
+      return {
+        binId: activeBin.binId,
+        price: pool.fromPricePerLamport(Number(activeBin.price)),
+        pricePerLamport: activeBin.price.toString(),
+      };
+    } catch (err) {
+      lastError = err;
+      log("rpc", `getActiveBin attempt ${attempt + 1} failed: ${err.message || err}`);
+    }
+  }
+
+  throw lastError || new Error("getActiveBin failed on all RPC endpoints");
 }
 
 // ─── Deploy Position ───────────────────────────────────────────

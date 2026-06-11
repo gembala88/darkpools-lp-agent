@@ -607,6 +607,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
           mem ? `  memory_untrusted: ${sanitizeUntrustedPromptText(mem, 500)}` : null,
           aiMap[pool.pool] ? `  ai: regime=${aiMap[pool.pool].marketRegime} | whale=${aiMap[pool.pool].whaleExitProb?.toFixed(1)}% | chief=${aiMap[pool.pool].aiChiefRecommendation}` : null,
           aiMap[pool.pool]?.rugProbability != null ? `  scam: rug=${aiMap[pool.pool].rugProbability}% | bundler=${aiMap[pool.pool].bundlerRisk} | concentration=${aiMap[pool.pool].concentrationRisk}%` : null,
+          aiMap[pool.pool]?.chiefRecommendation ? `  agents: risk=${aiMap[pool.pool].riskSignal} mom=${aiMap[pool.pool].momentumSignal} whale=${aiMap[pool.pool].whaleSignal} mkt=${aiMap[pool.pool].marketSignal} sm=${aiMap[pool.pool].smartMoneySignal} narr=${aiMap[pool.pool].narrativeSignal} chief=${aiMap[pool.pool].chiefRecommendation} (${aiMap[pool.pool].chiefConfidence}%)` : null,
         ].filter(Boolean).join("\n");
       } else {
         const gmgnPriceLine = pool.gmgn_price_action
@@ -625,6 +626,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
           mem ? `  memory_untrusted: ${sanitizeUntrustedPromptText(mem, 500)}` : null,
           aiMap[pool.pool] ? `  ai: regime=${aiMap[pool.pool].marketRegime} | whale=${aiMap[pool.pool].whaleExitProb?.toFixed(1)}% | chief=${aiMap[pool.pool].aiChiefRecommendation}` : null,
           aiMap[pool.pool]?.rugProbability != null ? `  scam: rug=${aiMap[pool.pool].rugProbability}% | bundler=${aiMap[pool.pool].bundlerRisk} | concentration=${aiMap[pool.pool].concentrationRisk}%` : null,
+          aiMap[pool.pool]?.chiefRecommendation ? `  agents: risk=${aiMap[pool.pool].riskSignal} mom=${aiMap[pool.pool].momentumSignal} whale=${aiMap[pool.pool].whaleSignal} mkt=${aiMap[pool.pool].marketSignal} sm=${aiMap[pool.pool].smartMoneySignal} narr=${aiMap[pool.pool].narrativeSignal} chief=${aiMap[pool.pool].chiefRecommendation} (${aiMap[pool.pool].chiefConfidence}%)` : null,
         ].filter(Boolean).join("\n");
       }
 
@@ -699,6 +701,8 @@ STEPS:
     Fees paid: <x> SOL
     Smart wallets: <names or none>
     Rug: <x>% | Bundler: <level> | Concentration: <x>%
+    Agents: <risk>/<mom>/<whale>/<mkt>/<sm>/<narr>
+    Chief: <recommendation> (<confidence>%)
 
     WHY THIS WON
    <2-4 concise sentences on why this pool won, key risks, and why it still beat the alternatives>
