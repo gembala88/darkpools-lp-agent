@@ -84,21 +84,21 @@ function loadLanesConfig() {
       maxPositions: lanes.institutional?.maxPositions ?? 2,
       deployAmountSol: lanes.institutional?.deployAmountSol ?? 0.3,
       sizingMultiplier: lanes.institutional?.sizingMultiplier ?? 0.8,
-      screeningOverrides: lanes.institutional?.screeningOverrides ?? {},
+      screeningOverrides: { maxTop10Pct: 45, maxBotHoldersPct: 20, minTvl: 25000, minTokenFeesSol: 50, minHolders: 500, ...(lanes.institutional?.screeningOverrides ?? {}) },
     },
     balanced: {
       minLpAlphaScore: lanes.balanced?.minLpAlphaScore ?? 70,
       maxPositions: lanes.balanced?.maxPositions ?? 3,
       deployAmountSol: lanes.balanced?.deployAmountSol ?? 0.5,
       sizingMultiplier: lanes.balanced?.sizingMultiplier ?? 1.0,
-      screeningOverrides: lanes.balanced?.screeningOverrides ?? {},
+      screeningOverrides: { maxTop10Pct: 55, maxBotHoldersPct: 35, minTvl: 15000, minTokenFeesSol: 30, minHolders: 300, ...(lanes.balanced?.screeningOverrides ?? {}) },
     },
     moonshot: {
       minLpAlphaScore: lanes.moonshot?.minLpAlphaScore ?? 60,
       maxPositions: lanes.moonshot?.maxPositions ?? 4,
       deployAmountSol: lanes.moonshot?.deployAmountSol ?? 0.7,
       sizingMultiplier: lanes.moonshot?.sizingMultiplier ?? 1.3,
-      screeningOverrides: lanes.moonshot?.screeningOverrides ?? {},
+      screeningOverrides: { maxTop10Pct: 90, maxBotHoldersPct: 70, minTvl: 3000, minTokenFeesSol: 15, minHolders: 100, ...(lanes.moonshot?.screeningOverrides ?? {}) },
     },
   };
 }

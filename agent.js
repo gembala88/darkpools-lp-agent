@@ -238,6 +238,11 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
           await new Promise((r) => setTimeout(r, (attempt + 1) * 5000));
           continue;
         }
+        if (!response) {
+          log("agent_warn", "Empty/undefined LLM response — retrying");
+          await new Promise((r) => setTimeout(r, (attempt + 1) * 5000));
+          continue;
+        }
         if (response.choices?.length) break;
         const errCode = response.error?.code;
         if (errCode === 502 || errCode === 503 || errCode === 529) {
@@ -254,7 +259,7 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
         }
       }
 
-      if (!response.choices?.length) {
+      if (!response?.choices?.length) {
         log("error", `Bad API response: ${JSON.stringify(response).slice(0, 200)}`);
         throw new Error(`API returned no choices: ${response.error?.message || JSON.stringify(response)}`);
       }
