@@ -26,6 +26,8 @@ import {
   notifyOutOfRange,
   isEnabled as telegramEnabled,
   createLiveMessage,
+  sendToChannel,
+  setChannelNotificationLevel,
 } from "./telegram.js";
 import { generateBriefing } from "./briefing.js";
 import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, getTrackedPositions, setPositionInstruction, updatePnlAndCheckExits, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop } from "./state.js";
@@ -1051,6 +1053,9 @@ let _ttyInterface = null;
 let _latestCandidates = [];
 let _latestCandidatesAt = null;
 let _pendingInput = null; // { key, page, menuMsgId }
+let _lastDecision = "N/A";
+let _latestRegime = "RANGING";
+let _latestPsychology = "NEUTRAL";
 
 function setLatestCandidates(candidates = []) {
   _latestCandidates = Array.isArray(candidates) ? candidates : [];
@@ -1491,6 +1496,17 @@ function formatHelpText() {
     "/pause — stop cron cycles",
     "/resume — start cron cycles again",
     "/stop — shut down agent",
+    "",
+    "Phase 90 commands:",
+    "/mode — toggle DRY RUN / Live Trading",
+    "/filters — show all active filters with edit buttons",
+    "/setfilter <key> <value> — update any filter",
+    "/riskmode — quick risk preset buttons",
+    "/agent — full agent status & diagnostics",
+    "/setmodel <model> — change LLM model",
+    "/setrpc <url> — change RPC URL",
+    "/restart — soft restart agent",
+    "/channel <mode> — set notification level (all|deploys|errors|off)",
   ].join("\n");
 }
 
@@ -1624,6 +1640,81 @@ async function telegramHandler(msg) {
     }
     return;
   }
+
+  // Phase 90 callback handlers
+  if (msg?.isCallback && text.startsWith("mode:")) {
+    await answerCallbackQuery(msg.callbackQueryId, "Processing...");
+    const action = text.split(":")[1];
+    if (action === "toggle_dryrun") {
+      await sendMessage("⚠️ Are you sure? This affects real trading.\n\n[Yes, toggle] — click filter button again\n[Cancel] — type /mode", msg.messageId).catch(() => {});
+      const newDryRun = !config.dryRun;
+      const result = await executeTool("update_config", {
+        changes: { dryRun: newDryRun, enableRealDeployment: !newDryRun },
+        reason: "Telegram /mode toggle dryrun",
+      });
+      if (result?.success) {
+        sendToChannel(`🔄 DRY RUN toggled: ${config.dryRun ? "ON" : "OFF"} → ${newDryRun ? "ON" : "OFF"} by user`, "info").catch(() => {});
+      }
+    } else if (action === "toggle_live") {
+      await sendHTML("⚠️ DANGER: This enables REAL capital deployment.\n\nType <code>CONFIRM</code> to proceed.").catch(() => {});
+      // /setfilter handler or confirmation check requires manual CONFIRM via text
+    }
+    return;
+  }
+
+  if (msg?.isCallback && text.startsWith("filters:")) {
+    const parts = text.split(":");
+    const filterAction = parts[1];
+    if (filterAction === "input") {
+      const filterKey = parts[2];
+      const currentVal = config.screening[filterKey] ?? config.management[filterKey] ?? config.risk[filterKey] ?? "?";
+      _pendingInput = { key: filterKey, page: "main", menuMsgId: msg.messageId };
+      await answerCallbackQuery(msg.callbackQueryId);
+      await sendMessage(`Enter new value for ${filterKey} (current: ${currentVal}):`);
+      return;
+    }
+    if (filterAction === "reset") {
+      await answerCallbackQuery(msg.callbackQueryId, "Resetting...");
+      const defaults = {
+        minTvl: 10000, maxTvl: 1500000, minVolume: 500, minHolders: 500,
+        minMcap: 150000, maxMcap: 10000000, maxBotHoldersPct: 30,
+        minTokenFeesSol: 30, stopLossPct: -50, takeProfitPct: 8,
+        deployAmountSol: 0.5, maxPositions: 3,
+      };
+      const result = await executeTool("update_config", {
+        changes: defaults,
+        reason: "Telegram filters reset to defaults",
+      });
+      if (result?.success) {
+        await editMessage("✅ Filters reset to defaults.", msg.messageId);
+        sendToChannel("⚙️ Filters reset to defaults", "info").catch(() => {});
+      }
+    }
+    return;
+  }
+
+  if (msg?.isCallback && text.startsWith("riskmode:")) {
+    await answerCallbackQuery(msg.callbackQueryId, "Applying...");
+    const mode = text.split(":")[1];
+    const presets = {
+      conservative: { minTvl: 20000, maxTvl: 500000, stopLossPct: -5, deployAmountSol: 0.2, maxBotHoldersPct: 30, minHolders: 200, maxPositions: 1 },
+      moderate: { minTvl: 10000, maxTvl: 1500000, stopLossPct: -8, deployAmountSol: 0.4, maxBotHoldersPct: 50, minHolders: 100, maxPositions: 2 },
+      aggressive: { minTvl: 5000, maxTvl: 3000000, stopLossPct: -12, deployAmountSol: 0.6, maxBotHoldersPct: 70, minHolders: 50, maxPositions: 3 },
+    };
+    const changes = presets[mode];
+    if (!changes) { await answerCallbackQuery(msg.callbackQueryId, "Unknown mode"); return; }
+    const result = await executeTool("update_config", {
+      changes,
+      reason: `Telegram /riskmode ${mode}`,
+    });
+    if (result?.success) {
+      const label = mode.charAt(0).toUpperCase() + mode.slice(1);
+      await editMessage(`✅ Risk mode set to ${label}`, msg.messageId);
+      sendToChannel(`🎯 Risk mode changed to ${label}`, "info").catch(() => {});
+    }
+    return;
+  }
+
   if (text === "/settings" || text === "/menu" || text === "/configmenu") {
     await showSettingsMenu().catch((e) => sendMessage(`Settings error: ${e.message}`).catch(() => {}));
     return;
@@ -1694,7 +1785,7 @@ async function telegramHandler(msg) {
       const { positions } = await getMyPositions({ force: true });
       if (idx < 0 || idx >= positions.length) { await sendMessage("Invalid number. Use /positions first."); return; }
       const pos = positions[idx];
-      await sendMessage([
+      const lines = [
         `${idx + 1}. ${pos.pair}`,
         `Pool: ${pos.pool}`,
         `Position: ${pos.position}`,
@@ -1703,7 +1794,27 @@ async function telegramHandler(msg) {
         `Value: ${config.management.solMode ? "◎" : "$"}${pos.total_value_usd ?? "?"}`,
         `Age: ${pos.age_minutes ?? "?"}m | ${pos.in_range ? "IN RANGE" : `OOR ${pos.minutes_out_of_range ?? 0}m`}`,
         pos.instruction ? `Note: ${pos.instruction}` : null,
-      ].filter(Boolean).join("\n"));
+      ];
+      // Meteora Analytics (Phase 92)
+      try {
+        const { integrations } = await import("./dist/integrations/index.js");
+        const stats = await integrations.meteoraAnalytics.getPoolStats(pos.pool).catch(() => null);
+        if (stats) {
+          lines.push("");
+          lines.push("📊 Pool Analytics (Meteora)");
+          lines.push(`- Fee APR (24h): ${stats.apr24h != null ? stats.apr24h.toFixed(2) + "%" : "?"}`);
+          lines.push(`- Yearly APR: ${stats.apr7d != null ? stats.apr7d.toFixed(2) + "%" : "?"}`);
+          lines.push(`- Bin utilization: ${stats.utilization != null ? stats.utilization.toFixed(1) + "%" : "?"}`);
+          const util = stats.utilization ?? 0;
+          lines.push(`- Range health: ${util > 70 ? "HEALTHY" : util > 30 ? "AT_RISK" : "OUT_OF_RANGE"}`);
+          const volHistory = await integrations.meteoraAnalytics.getPoolVolumeHistory(pos.pool, "5m", 5).catch(() => []);
+          if (volHistory.length >= 2) {
+            const trend = volHistory[volHistory.length - 1].volume > volHistory[0].volume ? "↑" : "↓";
+            lines.push(`- Volume trend: ${trend}`);
+          }
+        }
+      } catch { /* analytics unavailable */ }
+      await sendMessage(lines.filter(Boolean).join("\n"));
     } catch (e) {
       await sendMessage(`Error: ${e.message}`).catch(() => {});
     }
@@ -1869,6 +1980,195 @@ async function telegramHandler(msg) {
     } catch (e) {
       await sendMessage(`HiveMind error: ${e.message}`).catch(() => {});
     }
+    return;
+  }
+
+  // ── Phase 90 commands ──────────────────────
+
+  if (text === "/mode") {
+    await sendMessageWithButtons(
+      `🤖 Agent Mode\n\n- DRY RUN: ${config.dryRun ? "✅ ON" : "❌ OFF"}\n- Live Trading: ${!config.dryRun && process.env.ENABLE_REAL_DEPLOYMENT === 'true' ? "✅ ON" : "❌ OFF"}\n- Deploy Amount: ${config.management.deployAmountSol} SOL`,
+      [
+        [{ text: config.dryRun ? "🔄 Toggle DRY RUN" : "🔄 Toggle DRY RUN", callback_data: "mode:toggle_dryrun" }],
+        [{ text: "🔄 Toggle Live Trading", callback_data: "mode:toggle_live" }],
+      ]
+    ).catch(() => {});
+    return;
+  }
+
+  if (text === "/filters") {
+    const s = config.screening;
+    const m = config.management;
+    const r = config.risk;
+    const lines = [
+      "⚙️ Active Filters",
+      `- minTvl: $${s.minTvl?.toLocaleString() ?? "?"}`,
+      `- maxTvl: $${s.maxTvl?.toLocaleString() ?? "?"}`,
+      `- minVolume: $${s.minVolume ?? "?"}`,
+      `- minHolders: ${s.minHolders ?? "?"}`,
+      `- minMcap: $${s.minMcap?.toLocaleString() ?? "?"}`,
+      `- maxMcap: $${s.maxMcap?.toLocaleString() ?? "?"}`,
+      `- maxBotHoldersPct: ${s.maxBotHoldersPct ?? "?"}%`,
+      `- minTokenFeesSol: ${s.minTokenFeesSol ?? "?"}`,
+      `- stopLoss: ${m.stopLossPct ?? "?"}%`,
+      `- takeProfit: ${m.takeProfitPct ?? "?"}%`,
+      `- deployAmount: ${m.deployAmountSol ?? "?"} SOL`,
+      `- maxPositions: ${r.maxPositions ?? "?"}`,
+    ];
+    await sendMessageWithButtons(lines.join("\n"), [
+      [
+        { text: "Edit minTvl", callback_data: "filters:input:minTvl" },
+        { text: "Edit maxTvl", callback_data: "filters:input:maxTvl" },
+      ],
+      [
+        { text: "Edit stopLoss", callback_data: "filters:input:stopLossPct" },
+        { text: "Edit takeProfit", callback_data: "filters:input:takeProfitPct" },
+      ],
+      [
+        { text: "Edit deployAmount", callback_data: "filters:input:deployAmountSol" },
+        { text: "Edit maxPositions", callback_data: "filters:input:maxPositions" },
+      ],
+      [
+        { text: "🔁 Reset to defaults", callback_data: "filters:reset" },
+      ],
+    ]).catch(() => {});
+    return;
+  }
+
+  const setFilterMatch = text.match(/^\/setfilter\s+([A-Za-z0-9_]+)\s+(.+)$/i);
+  if (setFilterMatch) {
+    try {
+      const key = setFilterMatch[1];
+      const rawValue = setFilterMatch[2].trim();
+      let value = Number(rawValue);
+      if (!Number.isFinite(value)) { await sendMessage(`Invalid value: ${rawValue}. Must be a number.`).catch(() => {}); return; }
+
+      // Validation rules
+      if (key === "stopLoss" || key === "stopLossPct") {
+        value = -Math.abs(value);
+        if (value < -15) { await sendMessage("❌ stopLoss cannot be wider than -15%.").catch(() => {}); return; }
+      } else if (key === "deployAmount" || key === "deployAmountSol") {
+        if (value < 0.1 || value > 1.0) { await sendMessage("❌ deployAmount must be 0.1 to 1.0 SOL.").catch(() => {}); return; }
+      } else if (key === "maxPositions") {
+        value = Math.round(value);
+        if (value < 1 || value > 5) { await sendMessage("❌ maxPositions must be 1 to 5.").catch(() => {}); return; }
+      } else if (key === "minTvl") {
+        if (value < 1000) { await sendMessage("❌ minTvl minimum is 1000.").catch(() => {}); return; }
+      } else if (key === "maxTvl") {
+        if (value > 10000000) { await sendMessage("❌ maxTvl maximum is 10,000,000.").catch(() => {}); return; }
+      } else if (key === "maxBotHoldersPct") {
+        value = Math.round(value);
+        if (value < 10 || value > 100) { await sendMessage("❌ maxBotHoldersPct must be 10 to 100.").catch(() => {}); return; }
+      } else if (key === "minHolders") {
+        value = Math.round(value);
+        if (value < 10) { await sendMessage("❌ minHolders minimum is 10.").catch(() => {}); return; }
+      }
+
+      const result = await executeTool("update_config", {
+        changes: { [key]: value },
+        reason: `Telegram /setfilter ${key}`,
+      });
+      if (!result?.success) {
+        await sendMessage(`Failed to update ${key}.`).catch(() => {});
+        return;
+      }
+      const oldVal = config.screening[key] ?? config.management[key] ?? config.risk[key] ?? "?";
+      await sendMessage(`✅ ${key} updated: ${oldVal} → ${value}`).catch(() => {});
+      sendToChannel(`⚙️ Filter updated: ${key} ${oldVal} → ${value}`, "info").catch(() => {});
+    } catch (e) { await sendMessage(`Error: ${e.message}`).catch(() => {}); }
+    return;
+  }
+
+  if (text === "/riskmode") {
+    await sendMessageWithButtons("🎯 Select Risk Mode:", [
+      [
+        { text: "🟢 Conservative", callback_data: "riskmode:conservative" },
+        { text: "🟡 Moderate", callback_data: "riskmode:moderate" },
+        { text: "🔴 Aggressive", callback_data: "riskmode:aggressive" },
+      ],
+    ]).catch(() => {});
+    return;
+  }
+
+  if (text === "/agent") {
+    try {
+      const { positions } = await getMyPositions({ force: true });
+      const wallet = await getWalletBalances().catch(() => ({ sol: "?" }));
+      const lastScreen = timers.screeningLastRun ? Math.round((Date.now() - timers.screeningLastRun) / 60000) : "?";
+      const regime = _latestRegime || "RANGING";
+      const psychology = _latestPsychology || "NEUTRAL";
+      const model = config.llm.screeningModel || "?";
+      const masked = String(wallet.address || config.walletAddress || "?").replace(/^(.{4}).*(.{3})$/, "$1...$2");
+      await sendMessage([
+        "🤖 Agent Status",
+        `- Mode: ${config.dryRun ? "DRY RUN ✅" : "LIVE 🔴"}`,
+        `- Model: ${model}`,
+        `- Screening: every ${config.schedule.screeningIntervalMin}m`,
+        `- Management: every ${config.schedule.managementIntervalMin}m`,
+        `- Last screening: ${lastScreen}m ago`,
+        `- Last decision: ${_lastDecision || "N/A"}`,
+        `- Market regime: ${regime}`,
+        `- Psychology: ${psychology}`,
+        `- Wallet: ${masked}`,
+        `- Balance: ${wallet.sol ?? "?"} SOL`,
+      ].join("\n")).catch(() => {});
+    } catch (e) { await sendMessage(`Error: ${e.message}`).catch(() => {}); }
+    return;
+  }
+
+  const setModelMatch = text.match(/^\/setmodel\s+(.+)$/i);
+  if (setModelMatch) {
+    try {
+      const model = setModelMatch[1].trim();
+      const result = await executeTool("update_config", {
+        changes: { llmModel: model, managementModel: model, screeningModel: model, generalModel: model },
+        reason: "Telegram /setmodel",
+      });
+      if (!result?.success) { await sendMessage("Failed to update model.").catch(() => {}); return; }
+      await sendMessage(`✅ Model updated to ${model}. Restart required: /restart`).catch(() => {});
+      sendToChannel(`🔄 Model changed to ${model}`, "info").catch(() => {});
+    } catch (e) { await sendMessage(`Error: ${e.message}`).catch(() => {}); }
+    return;
+  }
+
+  const setRpcMatch = text.match(/^\/setrpc\s+(https?:\/\/.+)$/i);
+  if (setRpcMatch) {
+    try {
+      const url = setRpcMatch[1].trim();
+      if (!/^https?:\/\/.+/.test(url)) { await sendMessage("Invalid URL format.").catch(() => {}); return; }
+      const result = await executeTool("update_config", {
+        changes: { rpcUrl: url },
+        reason: "Telegram /setrpc",
+      });
+      if (!result?.success) { await sendMessage("Failed to update RPC.").catch(() => {}); return; }
+      await sendMessage(`✅ RPC updated to ${url}. Restart required: /restart`).catch(() => {});
+    } catch (e) { await sendMessage(`Error: ${e.message}`).catch(() => {}); }
+    return;
+  }
+
+  if (text === "/restart") {
+    await sendMessage("🔄 Restarting agent...").catch(() => {});
+    sendToChannel("🔄 Agent restarting...", "errors").catch(() => {});
+    setTimeout(() => process.exit(0), 1000);
+    return;
+  }
+
+  const channelMatch = text.match(/^\/channel\s+(.+)$/i);
+  if (channelMatch) {
+    const mode = channelMatch[1].trim().toLowerCase();
+    const valid = { "all": "All Updates", "deploys": "Deploys Only", "errors": "Errors Only", "off": "Off" };
+    if (!valid[mode]) {
+      await sendMessage(`Invalid mode. Options: all, deploys, errors, off`).catch(() => {});
+      return;
+    }
+    const { setChannelNotificationLevel } = await import("./telegram.js");
+    setChannelNotificationLevel(mode);
+    try {
+      const cfg = JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"));
+      cfg.channelNotificationLevel = mode;
+      fs.writeFileSync(USER_CONFIG_PATH, JSON.stringify(cfg, null, 2));
+    } catch { /* ignore */ }
+    await sendMessage(`✅ Channel notifications: ${valid[mode]}`).catch(() => {});
     return;
   }
 

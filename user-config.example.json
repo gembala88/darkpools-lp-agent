@@ -22,7 +22,7 @@
   "category": "trending",
   "excludeHighSupplyConcentration": true,
   "minTvl": 10000,
-  "maxTvl": 150000,
+  "maxTvl": 1500000,
   "minVolume": 500,
   "minOrganic": 60,
   "minQuoteOrganic": 60,

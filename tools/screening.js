@@ -584,7 +584,9 @@ async function discoverFromGMGN() {
     log("discovery", `source=gmgn count=${pools.length}`);
     return { pools, source: "gmgn" };
   } catch (err) {
-    log("discovery", `source=gmgn error=${err.message}`);
+    const e = err.message?.toLowerCase() || '';
+    const category = e.includes('api key') || e.includes('invalid key') || e.includes('401') ? 'discovery_debug' : 'discovery';
+    log(category, `source=gmgn error=${err.message}`);
     return { pools: [], source: "gmgn" };
   }
 }
@@ -691,8 +693,112 @@ async function discoverFromDexScreenerBoosted() {
 }
 
 /**
+ * Discover concentrated liquidity pools from Raydium (CLMM).
+ * Filters for SOL pairs only. These are NOT Meteora DLMM pools.
+ */
+async function discoverFromRaydium() {
+  try {
+    const res = await fetch(
+      "https://api-v3.raydium.io/pools/info/list?poolType=concentrated&sort=volume24h&order=desc&pageSize=50&page=1",
+      { signal: AbortSignal.timeout(10000) }
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const raw = data?.data?.pools ?? [];
+    const SOL = "So11111111111111111111111111111111111111112";
+    const pools = raw
+      .filter(p => p.mintA?.address === SOL || p.mintB?.address === SOL)
+      .map(p => ({
+        pool: p.poolId || `ray-${p.mintA?.address}-${p.mintB?.address}`,
+        name: `${p.mintA?.symbol || "?"}-${p.mintB?.symbol || "?"}`,
+        base: {
+          symbol: p.mintA?.address === SOL ? p.mintB?.symbol : p.mintA?.symbol,
+          mint: p.mintA?.address === SOL ? p.mintB?.address : p.mintA?.address,
+          organic: null,
+          warnings: 0,
+        },
+        quote: {
+          symbol: p.mintA?.address === SOL ? p.mintA?.symbol : p.mintB?.symbol,
+          mint: SOL,
+        },
+        pool_type: 'concentrated',
+        bin_step: null,
+        fee_pct: p.day?.feeApr ?? null,
+        tvl: p.tvl ?? 0,
+        active_tvl: p.tvl ?? 0,
+        volume_window: p.day?.volume ?? 0,
+        fee_active_tvl_ratio: null,
+        volatility: null,
+        holders: null,
+        mcap: null,
+        price: null,
+        dex_source: 'raydium',
+        dex_volume_h24: p.day?.volume ?? 0,
+        dex_liquidity: p.tvl ?? 0,
+      }));
+    log("discovery", `source=raydium_clmm count=${pools.length}`);
+    return { pools, source: "raydium_clmm" };
+  } catch (err) {
+    log("discovery", `source=raydium_clmm error=${err.message}`);
+    return { pools: [], source: "raydium_clmm" };
+  }
+}
+
+/**
+ * Discover whirlpools from Orca.
+ * Filters for SOL pairs only. These are NOT Meteora DLMM pools.
+ */
+async function discoverFromOrca() {
+  try {
+    const res = await fetch(
+      "https://api.mainnet.orca.so/v1/whirlpool/list",
+      { signal: AbortSignal.timeout(10000) }
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const raw = data?.whirlpools ?? [];
+    const SOL = "So11111111111111111111111111111111111111112";
+    const pools = raw
+      .filter(p => p.tokenA?.mint === SOL || p.tokenB?.mint === SOL)
+      .map(p => ({
+        pool: p.address || `orca-${p.tokenA?.mint}-${p.tokenB?.mint}`,
+        name: `${p.tokenA?.symbol || "?"}-${p.tokenB?.symbol || "?"}`,
+        base: {
+          symbol: p.tokenA?.mint === SOL ? p.tokenB?.symbol : p.tokenA?.symbol,
+          mint: p.tokenA?.mint === SOL ? p.tokenB?.mint : p.tokenA?.mint,
+          organic: null,
+          warnings: 0,
+        },
+        quote: {
+          symbol: p.tokenA?.mint === SOL ? p.tokenA?.symbol : p.tokenB?.symbol,
+          mint: SOL,
+        },
+        pool_type: 'whirlpool',
+        bin_step: p.tickSpacing ?? null,
+        fee_pct: p.feeApr ?? null,
+        tvl: p.tvl ?? 0,
+        active_tvl: p.tvl ?? 0,
+        volume_window: p.volume?.day ?? 0,
+        fee_active_tvl_ratio: null,
+        volatility: null,
+        holders: null,
+        mcap: null,
+        price: null,
+        dex_source: 'orca',
+        dex_volume_h24: p.volume?.day ?? 0,
+        dex_liquidity: p.tvl ?? 0,
+      }));
+    log("discovery", `source=orca_whirlpools count=${pools.length}`);
+    return { pools, source: "orca_whirlpools" };
+  } catch (err) {
+    log("discovery", `source=orca_whirlpools error=${err.message}`);
+    return { pools: [], source: "orca_whirlpools" };
+  }
+}
+
+/**
  * Run all discovery sources in parallel, merge by mint, deduplicate.
- * Priority order for duplicate mints: meteora > gmgn > dexscreener_trending > dexscreener_boosted
+ * Priority order for duplicate mints: meteora > gmgn > dexscreener_trending > dexscreener_boosted > raydium > orca
  */
 async function discoverAll() {
   const sources = await Promise.allSettled([
@@ -700,6 +806,8 @@ async function discoverAll() {
     discoverFromGMGN(),
     discoverFromDexScreenerTrending(),
     discoverFromDexScreenerBoosted(),
+    discoverFromRaydium(),
+    discoverFromOrca(),
   ]);
 
   const allPools = [];
@@ -940,10 +1048,11 @@ export async function getTopCandidates({ limit = 10 } = {}) {
 
   // Phase 89c — Verify DexScreener pools are actually Meteora DLMM pools
   // DexScreener returns regular AMM pools; get_active_bin fails on non-DLMM pools
+  // Raydium and Orca pools are also non-DLMM — skip verification for them too
   if (eligible.length > 0) {
     const dlmmValid = [];
     for (const pool of eligible) {
-      if (!pool.dex_source) {
+      if (pool.dex_source !== true) {
         dlmmValid.push(pool);
         continue;
       }

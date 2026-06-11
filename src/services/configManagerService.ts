@@ -47,7 +47,7 @@ export class ConfigManagerService {
       const rugAvg = await this.getAvgRugProbability();
       const whaleExit = await this.getWhaleExitProbability();
 
-      this.logger.info(`Market: ${marketRegime} | Psychology: ${psychology} | RugAvg: ${rugAvg}% | WhaleExit: ${whaleExit}%`);
+      this.logger.info(`Market: ${marketRegime} | Psychology: ${psychology} | RugAvg: ${rugAvg}% | WhaleExit: ${whaleExit !== null ? whaleExit + '%' : 'N/A'}`);
 
       await this.adjustMaxBotHoldersPct(rugAvg);
       await this.adjustMinTvl(marketRegime);
@@ -98,12 +98,13 @@ export class ConfigManagerService {
     }
   }
 
-  private async getWhaleExitProbability(): Promise<number> {
+  private async getWhaleExitProbability(): Promise<number | null> {
     try {
       const result = await aiEngines.whaleExit.evaluate({ poolAddress: '', tokenMint: '' });
+      if (result.score === 0 && result.reason?.includes('No pool address')) return null;
       return 100 - result.score;
     } catch {
-      return 0;
+      return null;
     }
   }
 
@@ -187,10 +188,10 @@ export class ConfigManagerService {
     await this.tryChange('risk.maxPositions', 'maxPositions', val, reason);
   }
 
-  private async adjustStopLossPct(regime: string, whaleExit: number): Promise<void> {
+  private async adjustStopLossPct(regime: string, whaleExit: number | null): Promise<void> {
     let val: number;
     let reason: string;
-    if (whaleExit > 70) { val = -5; reason = `whaleExit ${whaleExit}% > 70 — tight stop`; }
+    if (whaleExit !== null && whaleExit > 70) { val = -5; reason = `whaleExit ${whaleExit}% > 70 — tight stop`; }
     else if (regime === 'PANIC') { val = -5; reason = 'panic — tight stop'; }
     else { val = -10; reason = 'default stop loss'; }
     await this.tryChange('management.stopLossPct', 'stopLossPct', val, reason);
@@ -255,9 +256,10 @@ Respond in JSON only: {"approved": true/false, "additional": ["suggestion1", "su
       const jsonMatch = clean.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON object found in AI response');
       const parsed = JSON.parse(jsonMatch[0]);
+      this.logger.info(`AI validation result: OK`);
       return { additional: Array.isArray(parsed?.additional) ? parsed.additional : [] };
     } catch (err) {
-      this.logger.warn(`AI validation failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.warn(`AI validation result: FAILED — ${err instanceof Error ? err.message : String(err)}`);
       return null;
     }
   }

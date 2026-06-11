@@ -162,6 +162,31 @@ export async function sendHTML(html) {
   return postTelegram("sendMessage", { text: html.slice(0, 4096), parse_mode: "HTML" });
 }
 
+let _channelNotificationLevel = "all"; // all | deploys | errors | off
+
+export function setChannelNotificationLevel(level) {
+  _channelNotificationLevel = ["all", "deploys", "errors", "off"].includes(level) ? level : "all";
+}
+
+export function getChannelNotificationLevel() {
+  return _channelNotificationLevel;
+}
+
+export async function sendToChannel(text, type = "info") {
+  if (!TOKEN || _channelNotificationLevel === "off") return;
+  if (type === "deploy" && _channelNotificationLevel === "errors") return;
+  if (type === "info" && _channelNotificationLevel !== "all") return;
+  const channelId = process.env.TELEGRAM_CHANNEL_ID || chatId;
+  if (!channelId) return;
+  try {
+    await fetch(`${BASE}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: channelId, text: String(text).slice(0, 4096) }),
+    });
+  } catch { /* ignore */ }
+}
+
 export async function editMessage(text, messageId) {
   if (!TOKEN || !chatId || !messageId) return null;
   return postTelegram("editMessageText", {
@@ -432,6 +457,16 @@ const BOT_COMMANDS = [
   { command: "pause",      description: "Stop cron cycles" },
   { command: "resume",     description: "Start cron cycles again" },
   { command: "stop",       description: "Shut down agent" },
+  // Phase 90 commands
+  { command: "mode",       description: "Toggle DRY RUN / Live Trading" },
+  { command: "filters",    description: "Show all active filters" },
+  { command: "setfilter",  description: "Update filter value" },
+  { command: "riskmode",   description: "Quick risk preset buttons" },
+  { command: "agent",      description: "Full agent status" },
+  { command: "setmodel",   description: "Change LLM model" },
+  { command: "setrpc",     description: "Change RPC URL" },
+  { command: "restart",    description: "Soft restart agent" },
+  { command: "channel",    description: "Set channel notification level" },
 ];
 
 async function registerCommands() {
