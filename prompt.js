@@ -130,10 +130,11 @@ DEPLOY RULES:
 - strategy = ${config.strategy.strategy} — always use this exact value, never change it.
 - bins_below = round(${config.strategy.minBinsBelow} + (candidate volatility/5)*${config.strategy.maxBinsBelow - config.strategy.minBinsBelow}) clamped to [${config.strategy.minBinsBelow},${config.strategy.maxBinsBelow}]. bins_above = 0.
 - Bin Step rule applies to METEORA DLMM pools ONLY.
-  For Meteora: bin_step must be between 45-125.
-  For Raydium CLMM and Orca Whirlpools: IGNORE bin_step completely.
-  These protocols use tick_spacing which is a different parameter.
-  Evaluate Raydium/Orca pools based on: fees, volume, TVL, and liquidity only.
+  For pools where protocol=METEORA_DLMM: bin_step must be between ${config.screening.minBinStep} and ${config.screening.maxBinStep}.
+  For pools where protocol=ORCA_WHIRLPOOL or protocol=RAYDIUM_CLMM:
+  - DO NOT apply bin_step filter.
+  - Evaluate based on: fees, volume, TVL, liquidity, and holders only.
+  - These protocols use tick_spacing which is incompatible with Meteora bin_step.
 - Pick ONE pool only if it qualifies. Otherwise explain why none qualify.
 
 DECISION DEADLINE: You MUST produce a final answer (deploy or explain skip) by step 8 at the latest. Do not research indefinitely — if you don't have conviction by step 6, the answer is "no" for this cycle. Late final answers are counted as failures.
