@@ -83,7 +83,7 @@ const RPC_FALLBACKS = [
   process.env.RPC_URL,
   "https://api.mainnet-beta.solana.com",
   "https://rpc.ankr.com/solana",
-].filter(Boolean).filter(url => !url.includes('pump.helius'));
+].filter(Boolean).filter(url => !url.includes('helius'));
 
 function getConnection() {
   if (!_connection) {
@@ -572,6 +572,17 @@ export async function getActiveBin({ pool_address }) {
   pool_address = normalizeMint(pool_address);
   let lastError;
 
+  // Skip non-Meteora pools (Raydium, Orca, etc.) — only DLMM program pools are supported
+  try {
+    const { PublicKey } = await import('@solana/web3.js');
+    const DLMM_PROGRAM = new PublicKey("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo");
+    const accountInfo = await getConnection().getAccountInfo(new PublicKey(pool_address));
+    if (accountInfo && !accountInfo.owner.equals(DLMM_PROGRAM)) {
+      log("deploy", `Pool ${pool_address.slice(0, 8)} is not a Meteora DLMM pool (owner: ${accountInfo.owner.toBase58().slice(0, 8)}...) — skipping active bin fetch`);
+      return { binId: null, price: null, pricePerLamport: null, poolType: 'non-dlmm' };
+    }
+  } catch { /* owner check failed — proceed with DLMM SDK attempt */ }
+
   for (let attempt = 0; attempt < RPC_FALLBACKS.length; attempt++) {
     try {
       if (attempt > 0) rotateRpc();
@@ -587,6 +598,10 @@ export async function getActiveBin({ pool_address }) {
       lastError = err;
       log("rpc", `getActiveBin attempt ${attempt + 1} failed: ${err.message || err}`);
     }
+  }
+
+  throw lastError || new Error(`getActiveBin failed after ${RPC_FALLBACKS.length} attempts`);
+}
   }
 
   throw lastError || new Error("getActiveBin failed on all RPC endpoints");

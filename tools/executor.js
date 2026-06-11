@@ -647,7 +647,32 @@ export async function executeTool(name, args) {
       if (name === "swap_token" && result.tx) {
         notifySwap({ inputSymbol: args.input_mint?.slice(0, 8), outputSymbol: args.output_mint === "So11111111111111111111111111111111111111112" || args.output_mint === "SOL" ? "SOL" : args.output_mint?.slice(0, 8), amountIn: result.amount_in, amountOut: result.amount_out, tx: result.tx }).catch(() => {});
       } else if (name === "deploy_position") {
-        notifyDeploy({ pair: result.pool_name || args.pool_name || args.pool_address?.slice(0, 8), amountSol: args.amount_y ?? args.amount_sol ?? 0, position: result.position, tx: result.txs?.[0] ?? result.tx, priceRange: result.price_range, rangeCoverage: result.range_coverage, binStep: result.bin_step, baseFee: result.base_fee }).catch(() => {});
+        if (result.dry_run) {
+          log("deploy", `[DRY_RUN] Simulated deploy: ${args.pool_address || args.pool_name} | ${args.amount_y ?? args.amount_sol ?? 0} SOL`);
+          const { sendToChannel } = await import('../telegram.js');
+          sendToChannel("🧪 DRY RUN Deploy: " + (result.would_deploy?.pool_address?.slice(0, 8) || args.pool_address?.slice(0, 8)) + " | " + (args.amount_y ?? args.amount_sol ?? 0) + " SOL (simulated)", "info").catch(() => {});
+          // Track in deployment memory as dry_run for self-learning
+          try {
+            const fs = await import('fs');
+            const memPath = '../data/dry-run-memory.json';
+            const memRaw = fs.existsSync(memPath) ? JSON.parse(fs.readFileSync(memPath, 'utf8')) : { deploys: [] };
+            memRaw.deploys.push({
+              pool_address: args.pool_address,
+              pool_name: args.pool_name,
+              amount_y: args.amount_y ?? args.amount_sol ?? 0,
+              strategy: args.strategy,
+              bins_below: args.bins_below,
+              downside_pct: args.downside_pct,
+              upside_pct: args.upside_pct,
+              volatility: args.volatility,
+              timestamp: new Date().toISOString(),
+              dry_run: true,
+            });
+            fs.writeFileSync(memPath, JSON.stringify(memRaw, null, 2));
+          } catch { /* ignore persistence errors */ }
+        } else {
+          notifyDeploy({ pair: result.pool_name || args.pool_name || args.pool_address?.slice(0, 8), amountSol: args.amount_y ?? args.amount_sol ?? 0, position: result.position, tx: result.txs?.[0] ?? result.tx, priceRange: result.price_range, rangeCoverage: result.range_coverage, binStep: result.bin_step, baseFee: result.base_fee }).catch(() => {});
+        }
       } else if (name === "close_position") {
         notifyClose({ pair: result.pool_name || args.position_address?.slice(0, 8), pnlUsd: result.pnl_usd ?? 0, pnlPct: result.pnl_pct ?? 0 }).catch(() => {});
         // Note low-yield closes in pool memory so screener avoids redeploying

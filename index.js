@@ -101,6 +101,7 @@ let _managementBusy = false; // prevents overlapping management cycles
 let _screeningBusy = false;  // prevents overlapping screening cycles
 let _screeningLastTriggered = 0; // epoch ms — prevents management from spamming screening
 let _pollTriggeredAt = 0; // epoch ms — cooldown for poller-triggered management
+let _lastDecision = { decision: "N/A", pool: null, reason: null, time: null };
 const _peakConfirmTimers = new Map();
 const _trailingDropConfirmTimers = new Map();
 const TRAILING_PEAK_CONFIRM_DELAY_MS = 15_000;
@@ -534,7 +535,8 @@ export async function runScreeningCycle({ silent = false } = {}) {
         reason: funnelBlock || combinedExamples || "All candidates filtered before deploy",
         rejected: combined.slice(0, 5).map((entry) => `${entry.name}: ${entry.reason}`),
       });
-      sendToChannel("🔍 Screening: No candidates — all filtered", "info").catch(() => {});
+      _lastDecision = { decision: "NO_CANDIDATES", pool: null, reason: funnelBlock || combined.slice(0,3).map(e => `${e.name}: ${e.reason}`).join("; "), time: new Date().toISOString() };
+      sendToChannel("🔍 Screening: No candidates\nFiltered: " + (combined.slice(0, 3).map(e => `${e.name}: ${e.reason}`).join("\n") || "all filtered before deploy"), "info").catch(() => {});
       return screenReport;
     }
 
@@ -571,6 +573,8 @@ export async function runScreeningCycle({ silent = false } = {}) {
           pool: passing[0].pool?.pool,
           pool_name: candidateName,
         });
+        _lastDecision = { decision: "SKIP", pool: candidateName, reason: skipReason, time: new Date().toISOString() };
+        sendToChannel("⛔ NO DEPLOY\nBest: " + candidateName + "\nReason: " + skipReason, "info").catch(() => {});
         return screenReport;
       }
     }
@@ -664,6 +668,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
 
     let deployAttempted = false;
     let deploySucceeded = false;
+    let _lastDeployPool = null;
     const { content } = await agentLoop(`
 SCREENING CYCLE
 ${strategyBlock}
@@ -737,10 +742,13 @@ IMPORTANT:
           if (name === "deploy_position") deployAttempted = true;
           await liveMessage?.toolStart(name);
         },
-        onToolFinish: async ({ name, result, success }) => {
+        onToolFinish: async ({ name, result, success, args }) => {
           if (name === "deploy_position") {
             deployAttempted = true;
             deploySucceeded = Boolean(success && result?.success !== false && !result?.error && !result?.blocked);
+            if (deploySucceeded) {
+              _lastDeployPool = result?.pool_name || result?.would_deploy?.pool_address || args?.pool_address || "unknown";
+            }
           }
           await liveMessage?.toolFinish(name, result, success);
         },
@@ -754,6 +762,7 @@ IMPORTANT:
         summary: "LLM chose no deploy",
         reason: stripThink(content).slice(0, 500),
       });
+      _lastDecision = { decision: "NO_DEPLOY", pool: null, reason: "LLM chose not to deploy", time: new Date().toISOString() };
       sendToChannel("⛔ NO DEPLOY: LLM chose not to deploy any pool", "info").catch(() => {});
     } else if (!deploySucceeded) {
       appendDecision({
@@ -762,9 +771,15 @@ IMPORTANT:
         summary: deployAttempted ? "Deploy attempt did not succeed" : "No successful deploy in screening cycle",
         reason: stripThink(content).slice(0, 500),
       });
+      _lastDecision = { decision: "DEPLOY_FAILED", pool: null, reason: deployAttempted ? "Deploy attempt did not succeed" : "No successful deploy", time: new Date().toISOString() };
       if (deployAttempted) sendToChannel("⛔ NO DEPLOY: Deploy attempt did not succeed", "info").catch(() => {});
     } else if (deploySucceeded) {
-      sendToChannel("✅ DEPLOY: Position deployed successfully", "deploy").catch(() => {});
+      _lastDecision = { decision: process.env.DRY_RUN === 'true' ? "DRY_RUN_DEPLOY" : "DEPLOY", pool: _lastDeployPool, reason: process.env.DRY_RUN === 'true' ? "Simulated deploy (DRY RUN)" : "Position deployed successfully", time: new Date().toISOString() };
+      if (process.env.DRY_RUN === 'true') {
+        sendToChannel("🧪 DRY RUN Deploy: " + (_lastDeployPool || "unknown") + " (simulated)", "info").catch(() => {});
+      } else {
+        sendToChannel("✅ DEPLOY: Position deployed successfully", "deploy").catch(() => {});
+      }
     }
   } catch (error) {
     log("cron_error", `Screening cycle failed: ${error.message}`);
@@ -2156,6 +2171,7 @@ async function telegramHandler(msg) {
       const model = config.llm.screeningModel || "?";
       const isDryRun = process.env.DRY_RUN === 'true';
       let masked = String(wallet.wallet || "?").replace(/^(.{4}).*(.{3})$/, "$1...$2");
+      const lastDecisionStr = _lastDecision ? `${_lastDecision.decision}${_lastDecision.pool ? ` — ${_lastDecision.pool}` : ""}${_lastDecision.reason ? ` (${_lastDecision.reason.slice(0, 80)})` : ""}${_lastDecision.time ? ` @ ${new Date(_lastDecision.time).toLocaleTimeString()}` : ""}` : "N/A";
       await sendMessage([
         "🤖 Agent Status",
         `- Mode: ${isDryRun ? "DRY RUN ✅" : "LIVE 🔴"}`,
@@ -2163,7 +2179,11 @@ async function telegramHandler(msg) {
         `- Screening: every ${config.schedule.screeningIntervalMin}m`,
         `- Management: every ${config.schedule.managementIntervalMin}m`,
         `- Last screening: ${lastScreen}m ago`,
-        `- Last decision: ${_lastDecision || "N/A"}`,
+        `- Last decision: ${lastDecisionStr}`,
+        `- Market regime: ${regime}`,
+        `- Psychology: ${psychology}`,
+        `- Wallet: ${masked}`,
+        `- Balance: ${isDryRun ? (config.management.dryRunVirtualBalance || 2.0) + " SOL (virtual/simulated)" : (wallet.sol ?? "?") + " SOL"}`,
         `- Market regime: ${regime}`,
         `- Psychology: ${psychology}`,
         `- Wallet: ${masked}`,
