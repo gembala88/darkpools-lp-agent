@@ -769,9 +769,24 @@ async function enrichCandidates(pools, s) {
       }
     }
 
+    // Jupiter DatAPI holder count fallback when Birdeye and Jupiter both return 0
+    if ((!overlay.birdeyeHolders || overlay.birdeyeHolders === 0) && (!overlay.jupiterHolders || overlay.jupiterHolders === 0)) {
+      try {
+        const res = await fetch(`${DATAPI_JUP}/v1/holders/${mint}?limit=1`);
+        if (res.ok) {
+          const data = await res.json();
+          const items = Array.isArray(data) ? data : (data?.holders ?? []);
+          const total = data?.total ?? items.length;
+          if (Number(total) > 0) {
+            overlay.jupiterHolders = Number(total);
+          }
+        }
+      } catch {}
+    }
+
     // Confidence scoring based on which enrichment sources provided data
-    overlay.holdersConfidence = overlay.birdeyeHolders != null ? 'HIGH'
-      : overlay.jupiterHolders != null ? 'MEDIUM'
+    overlay.holdersConfidence = overlay.birdeyeHolders != null && overlay.birdeyeHolders > 0 ? 'HIGH'
+      : overlay.jupiterHolders != null && overlay.jupiterHolders > 0 ? 'MEDIUM'
       : rateLimits.birdeye ? 'RATE_LIMITED'
       : 'NONE';
     overlay.marketCapConfidence = overlay.birdeyeMarketCap != null ? 'HIGH'
@@ -783,9 +798,9 @@ async function enrichCandidates(pools, s) {
       : 'NONE';
 
     // Composite quality score
-    const mcap = overlay.birdeyeMarketCap ?? overlay.jupiterMarketCap ?? 0;
-    const liq = overlay.birdeyeLiquidity ?? overlay.dexLiquidity ?? 0;
-    const vol = overlay.birdeyeVolume24h ?? overlay.dexVolume24h ?? 0;
+    const mcap = overlay.birdeyeMarketCap || overlay.jupiterMarketCap || 0;
+    const liq = overlay.birdeyeLiquidity || overlay.dexLiquidity || 0;
+    const vol = overlay.birdeyeVolume24h || overlay.dexVolume24h || 0;
     const numericMcap = Number(mcap) || 0;
     const numericLiq = Number(liq) || 0;
     const numericVol = Number(vol) || 0;
@@ -802,8 +817,8 @@ async function enrichCandidates(pools, s) {
 
     overlay.qualityScore = Math.round(qualityScore * 100) / 100;
 
-    log("enrichment", `mint=${mint} holders=${overlay.birdeyeHolders ?? overlay.jupiterHolders ?? '?'} botPct=${overlay.botHoldersPct ?? '?'} top10Pct=${overlay.topHoldersPct ?? '?'} liquidity=${overlay.birdeyeLiquidity ?? overlay.dexLiquidity ?? '?'} volume=${overlay.birdeyeVolume24h ?? overlay.dexVolume24h ?? '?'}`);
-    log("enrichment", `[QUALITY] mint=${mint} score=${overlay.qualityScore} holdersConf=${overlay.holdersConfidence} mcapConf=${overlay.marketCapConfidence} auditConf=${overlay.auditConfidence} holders=${overlay.birdeyeHolders ?? overlay.jupiterHolders ?? '?'} mcap=${overlay.birdeyeMarketCap ?? overlay.jupiterMarketCap ?? '?'} liq=${liq}`);
+    log("enrichment", `mint=${mint} holders=${overlay.birdeyeHolders || overlay.jupiterHolders || '?'} botPct=${overlay.botHoldersPct ?? '?'} top10Pct=${overlay.topHoldersPct ?? '?'} liquidity=${overlay.birdeyeLiquidity || overlay.dexLiquidity || '?'} volume=${overlay.birdeyeVolume24h || overlay.dexVolume24h || '?'}`);
+    log("enrichment", `[QUALITY] mint=${mint} score=${overlay.qualityScore} holdersConf=${overlay.holdersConfidence} mcapConf=${overlay.marketCapConfidence} auditConf=${overlay.auditConfidence} holders=${overlay.birdeyeHolders || overlay.jupiterHolders || '?'} mcap=${overlay.birdeyeMarketCap || overlay.jupiterMarketCap || '?'} liq=${liq}`);
 
     enrichedMints.set(mint, overlay);
   }
@@ -925,9 +940,9 @@ export async function getTopCandidates({ limit = 10 } = {}) {
     const filtered = [];
     for (const pool of eligible) {
       const enr = pool._enrichment || {};
-      const bestMcap = enr.birdeyeMarketCap ?? enr.jupiterMarketCap ?? pool.mcap ?? pool.marketCap;
-      const bestHolders = enr.birdeyeHolders ?? enr.jupiterHolders ?? pool.holders;
-      const bestVolume = enr.birdeyeVolume24h ?? enr.jupiterVolume24h ?? enr.dexVolume24h ?? pool.volume_window;
+      const bestMcap = enr.birdeyeMarketCap || enr.jupiterMarketCap || pool.mcap || pool.marketCap;
+      const bestHolders = enr.birdeyeHolders || enr.jupiterHolders || pool.holders;
+      const bestVolume = enr.birdeyeVolume24h || enr.jupiterVolume24h || enr.dexVolume24h || pool.volume_window;
 
       if (bestMcap != null && bestMcap < s.minMcap) {
         pushFilteredReason(filteredOut, pool, `mcap ${bestMcap} below minMcap ${s.minMcap}`);
