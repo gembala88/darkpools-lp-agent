@@ -13,6 +13,8 @@ export interface FilterCriteria {
   liquiditySuspicious: boolean;
   tokenAgeHours: number;
   marketCap: number;
+  /** Set of data source names that had successful fetches (e.g. 'holders', 'transactions', 'liquidity') */
+  dataAvailable?: Set<string>;
 }
 
 export interface FilterResult {
@@ -34,6 +36,7 @@ export class NoDeployFilterV2 {
   evaluate(criteria: FilterCriteria): FilterResult {
     const rejectReasons: string[] = [];
     const warnings: string[] = [];
+    const da = criteria.dataAvailable ?? new Set();
 
     if (criteria.lpAlphaScore < this.thresholds.minLpAlphaScore) {
       rejectReasons.push(`lpAlphaScore ${criteria.lpAlphaScore} < ${this.thresholds.minLpAlphaScore}`);
@@ -43,27 +46,27 @@ export class NoDeployFilterV2 {
       rejectReasons.push(`confidence ${criteria.confidence} < ${this.thresholds.minConfidence}`);
     }
 
-    if (criteria.txMomentumScore <= 0) {
+    if (criteria.txMomentumScore <= 0 && da.has('transactions')) {
       rejectReasons.push('negative tx momentum');
     }
 
-    if (criteria.feeVelocityScore <= 0) {
+    if (criteria.feeVelocityScore <= 0 && da.has('fee_data')) {
       rejectReasons.push('negative fee velocity');
     }
 
-    if (criteria.holderGrowthScore <= 0) {
+    if (criteria.holderGrowthScore <= 0 && da.has('holders')) {
       rejectReasons.push('negative holder growth');
     }
 
-    if (criteria.liquidityStabilityScore <= 0) {
+    if (criteria.liquidityStabilityScore <= 0 && da.has('liquidity')) {
       rejectReasons.push('liquidity draining');
     }
 
-    if (criteria.smartMoneyScore <= 0) {
+    if (criteria.smartMoneyScore <= 0 && da.has('smart_money')) {
       rejectReasons.push('smart money exiting');
     }
 
-    if (criteria.buySellScore < this.thresholds.minBuySellRatio * 100) {
+    if (criteria.buySellScore < this.thresholds.minBuySellRatio * 100 && da.has('transactions')) {
       rejectReasons.push(`buySellRatio ${(criteria.buySellScore / 100).toFixed(2)} < ${this.thresholds.minBuySellRatio}`);
     }
 
@@ -83,7 +86,7 @@ export class NoDeployFilterV2 {
       rejectReasons.push(`market cap $${criteria.marketCap} < $${this.thresholds.minMarketCap}`);
     }
 
-    if (criteria.liquidityStabilityScore < 40 && criteria.liquidityStabilityScore > 0) {
+    if (criteria.liquidityStabilityScore < 40 && criteria.liquidityStabilityScore > 0 && da.has('liquidity')) {
       warnings.push('liquidity stability concerning');
     }
 

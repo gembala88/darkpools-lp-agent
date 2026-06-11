@@ -84,7 +84,12 @@ export class LPIntelligenceService {
     const startTime = Date.now();
 
     try {
-      await this.marketData.fullSync(tokenMint, poolAddress);
+      const fullSyncResult = await this.marketData.fullSync(tokenMint, poolAddress);
+      const dataAvailable = new Set<string>();
+      if (fullSyncResult.holders > 0) dataAvailable.add('holders');
+      if (fullSyncResult.transactions > 0) dataAvailable.add('transactions');
+      if (fullSyncResult.liquidity) dataAvailable.add('liquidity');
+      if (fullSyncResult.market) dataAvailable.add('market_data');
 
       const alphaResult = await this.alphaEngine.evaluate({
         poolAddress,
@@ -169,6 +174,7 @@ export class LPIntelligenceService {
         liquiditySuspicious: false,
         tokenAgeHours: options?.tokenAgeHours ?? 0,
         marketCap: options?.marketCap ?? 0,
+        dataAvailable,
       };
 
       const filterResult = this.noDeployFilter.evaluate(filterCriteria);
