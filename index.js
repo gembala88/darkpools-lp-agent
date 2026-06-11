@@ -9,6 +9,7 @@ import { getMyPositions, closePosition, getActiveBin } from "./tools/dlmm.js";
 import { getWalletBalances } from "./tools/wallet.js";
 import { getTopCandidates } from "./tools/screening.js";
 import { LPIntelligenceService } from "./dist/services/lpIntelligenceService.js";
+import { ConfigManagerService } from "./dist/services/configManagerService.js";
 import { formatGmgnCandidateForPrompt } from "./tools/gmgn.js";
 import { config, reloadScreeningThresholds, computeDeployAmount } from "./config.js";
 import { evolveThresholds, getPerformanceSummary } from "./lessons.js";
@@ -803,6 +804,15 @@ Summarize the current portfolio health, total fees earned, and performance of al
   const briefingWatchdog = cron.schedule(`0 */6 * * *`, async () => {
     await maybeRunMissedBriefing();
   }, { timezone: 'UTC' });
+
+  // Config Manager — every 4 hours (autonomous settings optimizer)
+  const configManager = new ConfigManagerService();
+  const configManagerInterval = setInterval(() => {
+    configManager.run().catch(err => log("cron_error", `Config Manager failed: ${err.message}`));
+  }, 4 * 60 * 60 * 1000);
+  setTimeout(() => {
+    configManager.run().catch(err => log("cron_error", `Config Manager startup run failed: ${err.message}`));
+  }, 5 * 60 * 1000);
 
   // Lightweight 30s PnL poller — updates trailing TP state between management cycles, no LLM
   let _pnlPollBusy = false;
