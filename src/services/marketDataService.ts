@@ -190,17 +190,26 @@ export class MarketDataService {
             console.log(`  [txs] ${mint.slice(0, 8)}... DexScreener returned 0 Solana pairs`);
             return 0;
           }
-          const best = solPairs[0];
-          let totalTx5m = best.txCount?.m5 ?? 0;
-          let ratio5m = best.buySellRatio?.m5 ?? 1;
+          const best: any = solPairs[0];
+          // DexScreener API returns txns (buy/sell objects), not txCount (number)
+          // Use txns.m5.buys+sells for real tx data; fall back to txCount if unavailable
+          const m5Buys = Number(best.txns?.m5?.buys ?? best.txCount?.m5 ?? 0);
+          const m5Sells = Number(best.txns?.m5?.sells ?? 0);
+          const h1Buys = Number(best.txns?.h1?.buys ?? best.txCount?.h1 ?? 0);
+          const h1Sells = Number(best.txns?.h1?.sells ?? 0);
+          let totalTx5m = m5Buys + m5Sells;
+          let ratio5m = totalTx5m > 0 && m5Buys > 0 ? m5Buys / m5Sells || 1 : 1;
+          console.log(`[tx-debug] ${mint} txns.m5 buys=${m5Buys} sells=${m5Sells} total=${totalTx5m} h1 buys=${h1Buys} sells=${h1Sells}`);
           // Fallback: m5 can be 0 for low-traffic pairs — try h1, then h6
-          if (totalTx5m === 0 && (best.txCount?.h1 ?? 0) > 0) {
-            totalTx5m = Math.round((best.txCount.h1) / 12);
-            ratio5m = best.buySellRatio?.h1 ?? 1;
+          if (totalTx5m === 0 && ((best.txns?.h1?.buys ?? best.txCount?.h1 ?? 0) > 0)) {
+            const h1Total = h1Buys + h1Sells;
+            totalTx5m = Math.round(h1Total / 12);
+            ratio5m = h1Buys > 0 ? h1Buys / (h1Sells || 1) : 1;
             console.log(`  [txs] ${mint.slice(0, 8)}... m5=0 using h1/${12}=${totalTx5m} tx estimate`);
-          } else if (totalTx5m === 0 && (best.txCount?.h6 ?? 0) > 0) {
-            totalTx5m = Math.round((best.txCount.h6) / 72);
-            ratio5m = best.buySellRatio?.h6 ?? 1;
+          } else if (totalTx5m === 0 && (best.txns?.h6?.buys ?? 0) > 0) {
+            const h6Total = Number(best.txns.h6.buys) + Number(best.txns.h6.sells ?? 0);
+            totalTx5m = Math.round(h6Total / 72);
+            ratio5m = Number(best.txns.h6.buys) > 0 ? Number(best.txns.h6.buys) / (Number(best.txns.h6.sells ?? 1) || 1) : 1;
             console.log(`  [txs] ${mint.slice(0, 8)}... m5&h1=0 using h6/${72}=${totalTx5m} tx estimate`);
           }
           const buys5m = Math.round(totalTx5m * ratio5m / (1 + ratio5m));

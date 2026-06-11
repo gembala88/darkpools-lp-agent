@@ -762,8 +762,16 @@ async function discoverFromOrca() {
     const data = await res.json();
     const raw = data?.whirlpools ?? [];
     const SOL = "So11111111111111111111111111111111111111112";
-    const pools = raw
-      .filter(p => p.tokenA?.mint === SOL || p.tokenB?.mint === SOL)
+    const filtered = raw
+      .filter(p => p.tokenA?.mint === SOL || p.tokenB?.mint === SOL);
+    const totalBefore = filtered.length;
+    // Limit to top 50 by daily volume (SOL-side only)
+    const sorted = filtered
+      .filter(p => (p.volume?.day ?? 0) > 0)
+      .sort((a, b) => (b.volume?.day ?? 0) - (a.volume?.day ?? 0))
+      .slice(0, 50);
+    console.log(`[orca-debug] before filter: ${totalBefore} SOL-pairs, after volume filter+sort: ${sorted.length}${totalBefore > 50 ? ` (limited from ${totalBefore})` : ''}`);
+    const pools = sorted
       .map(p => ({
         pool: p.address || `orca-${p.tokenA?.mint}-${p.tokenB?.mint}`,
         name: `${p.tokenA?.symbol || "?"}-${p.tokenB?.symbol || "?"}`,
@@ -937,7 +945,7 @@ async function enrichCandidates(pools, s) {
     // Jupiter DatAPI holder count fallback when Birdeye and Jupiter both return 0
     if ((!overlay.birdeyeHolders || overlay.birdeyeHolders === 0) && (!overlay.jupiterHolders || overlay.jupiterHolders === 0)) {
       try {
-        const res = await fetch(`${DATAPI_JUP}/v1/holders/${mint}?limit=1`);
+        const res = await fetch(`${DATAPI_JUP}/holders/${mint}?limit=1`);
         if (res.ok) {
           const data = await res.json();
           const items = Array.isArray(data) ? data : (data?.holders ?? []);
@@ -952,10 +960,14 @@ async function enrichCandidates(pools, s) {
     // Calculate botPct/top10Pct from holder data when Jupiter audit is unavailable
     if (overlay.botHoldersPct == null || overlay.topHoldersPct == null) {
       try {
-        const holderRes = await fetch(`${DATAPI_JUP}/v1/holders/${mint}?limit=100`);
+        // DEBUG: log before fetch
+        const holderUrl = `${DATAPI_JUP}/holders/${mint}?limit=100`;
+        console.log(`[enrich-debug] ${mint} fetching holders from: ${holderUrl}`);
+        const holderRes = await fetch(holderUrl);
         if (holderRes.ok) {
           const holderData = await holderRes.json();
           const holders = Array.isArray(holderData) ? holderData : (holderData?.holders ?? []);
+          console.log(`[enrich-debug] ${mint} holders count: ${holders?.length ?? 0}`);
           if (holders.length > 0) {
             const withPct = holders.map(h => ({
               address: String(h.address ?? ''),
