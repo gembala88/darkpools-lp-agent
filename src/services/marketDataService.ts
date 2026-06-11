@@ -25,6 +25,19 @@ export class MarketDataService {
     this.meteora = integrations.meteora;
   }
 
+  private async fetchHolderCountFallback(mint: string): Promise<number> {
+    try {
+      const res = await fetch(`https://datapi.jup.ag/v1/holders/${mint}?limit=1`);
+      if (!res.ok) return 0;
+      const data: any = await res.json();
+      const items = Array.isArray(data) ? data : (data?.holders ?? []);
+      const total = data?.total ?? items.length;
+      return Number(total) || 0;
+    } catch {
+      return 0;
+    }
+  }
+
   async fetchAndStoreTokenData(mint: string): Promise<TokenData | null> {
     try {
       const [overview, jupiterInfo] = await Promise.allSettled([
@@ -34,6 +47,15 @@ export class MarketDataService {
 
       const birdeyeData = overview.status === 'fulfilled' ? overview.value : null;
       const jupData = jupiterInfo.status === 'fulfilled' ? jupiterInfo.value : null;
+
+      let holders = birdeyeData?.holders ?? jupData?.holders ?? 0;
+      if (holders === 0) {
+        const fallback = await this.fetchHolderCountFallback(mint);
+        if (fallback > 0) {
+          console.log(`  [holders] ${mint.slice(0, 8)}... fallback Jupiter DatAPI count=${fallback}`);
+          holders = fallback;
+        }
+      }
 
       const token: TokenData = {
         mint,
@@ -45,7 +67,7 @@ export class MarketDataService {
         marketCap: birdeyeData?.marketCap ?? jupData?.marketCap ?? 0,
         liquidity: birdeyeData?.liquidity ?? jupData?.liquidity ?? 0,
         volume24h: birdeyeData?.volume24h ?? 0,
-        holders: birdeyeData?.holders ?? jupData?.holders ?? 0,
+        holders,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -118,27 +140,43 @@ export class MarketDataService {
 
   async fetchAndStoreMarketData(mint: string, poolAddress: string): Promise<MarketData | null> {
     try {
-      const [birdeyeMarket, pairActivity] = await Promise.allSettled([
+      const [birdeyeMarket, pairActivity, dexPairs] = await Promise.allSettled([
         this.birdeye.getTokenMarketData(mint),
         this.dexscreener.getPairActivity(poolAddress),
+        this.dexscreener.searchPairs(mint),
       ]);
 
       const bd = birdeyeMarket.status === 'fulfilled' ? birdeyeMarket.value : null;
       const ds = pairActivity.status === 'fulfilled' ? pairActivity.value : null;
 
+      // DexScreener volume fallback when Birdeye is rate limited
+      let dexVol5m = 0;
+      let dexTx5m = 0;
+      let dexVol1h = 0;
+      let dexTx1h = 0;
+      if (dexPairs.status === 'fulfilled' && dexPairs.value) {
+        const solPairs = dexPairs.value.pairs?.filter(p => p.chainId === 'solana') ?? [];
+        if (solPairs.length > 0) {
+          dexVol5m = Math.max(...solPairs.map(p => p.volume?.m5 ?? 0));
+          dexTx5m = Math.max(...solPairs.map(p => p.txCount?.m5 ?? 0));
+          dexVol1h = Math.max(...solPairs.map(p => p.volume?.h1 ?? 0));
+          dexTx1h = Math.max(...solPairs.map(p => p.txCount?.h1 ?? 0));
+        }
+      }
+
       const marketData: MarketData = {
         poolAddress,
         tokenMint: mint,
         price: bd?.price ?? 0,
-        volume5m: bd?.volume5m ?? 0,
+        volume5m: bd?.volume5m ?? dexVol5m ?? 0,
         volume15m: bd?.volume15m ?? 0,
         volume30m: bd?.volume30m ?? 0,
-        volume1h: bd?.volume1h ?? 0,
+        volume1h: bd?.volume1h ?? dexVol1h ?? 0,
         volume24h: bd?.volume24h ?? 0,
-        txCount5m: bd?.txCount5m ?? ds?.txCount.m5 ?? 0,
+        txCount5m: bd?.txCount5m ?? ds?.txCount.m5 ?? dexTx5m ?? 0,
         txCount15m: bd?.txCount15m ?? 0,
         txCount30m: bd?.txCount30m ?? 0,
-        txCount1h: bd?.txCount1h ?? ds?.txCount.h1 ?? 0,
+        txCount1h: bd?.txCount1h ?? ds?.txCount.h1 ?? dexTx1h ?? 0,
         buyVolume5m: bd?.buyVolume5m ?? 0,
         sellVolume5m: bd?.sellVolume5m ?? 0,
         buyCount5m: 0,
@@ -183,7 +221,31 @@ export class MarketDataService {
       console.log(`  [liquidity] ${poolAddress.slice(0, 8)}... mint=${pool.mintX.slice(0, 8)}... liq=${snapshot.liquidity} tvl=${snapshot.tvl}`);
       return snapshot;
     } catch (error) {
-      console.log(`  [liquidity] ${poolAddress.slice(0, 8)}... FAILED: ${error instanceof Error ? error.message : String(error)}`);
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes('404')) {
+        console.log(`  [liquidity] ${poolAddress.slice(0, 8)}... pool not on Meteora (404), trying DexScreener`);
+        try {
+          const ds = await this.dexscreener.searchPairs(poolAddress);
+          const solPair = ds.pairs?.find(p => p.chainId === 'solana');
+          if (solPair) {
+            const snapshot: LiquiditySnapshot = {
+              poolAddress,
+              tokenMint: solPair.baseToken.address,
+              liquidity: solPair.liquidity?.usd ?? 0,
+              tvl: solPair.liquidity?.usd ?? 0,
+              activeBinLiquidity: 0,
+              timestamp: new Date(),
+              source: 'dexscreener',
+            };
+            await repositories.liquidity.add(snapshot);
+            console.log(`  [liquidity] ${poolAddress.slice(0, 8)}... dex liq=${snapshot.liquidity}`);
+            return snapshot;
+          }
+        } catch { }
+        console.log(`  [liquidity] ${poolAddress.slice(0, 8)}... no DexScreener data either`);
+        return null;
+      }
+      console.log(`  [liquidity] ${poolAddress.slice(0, 8)}... FAILED: ${msg}`);
       return null;
     }
   }

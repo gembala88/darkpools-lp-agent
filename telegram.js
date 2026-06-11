@@ -282,6 +282,7 @@ export async function createLiveMessage(title, intro = "Starting...") {
     flushTimer: null,
     flushPromise: null,
     flushRequested: false,
+    lastText: null,
   };
 
   function render() {
@@ -299,8 +300,11 @@ export async function createLiveMessage(title, intro = "Starting...") {
     if (!state.messageId) {
       const sent = await sendMessage(text);
       state.messageId = sent?.result?.message_id ?? null;
+      state.lastText = text;
       return;
     }
+    if (text === state.lastText) return;
+    state.lastText = text;
     await editMessage(text, state.messageId);
   }
 
