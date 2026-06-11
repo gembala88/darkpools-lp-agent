@@ -321,7 +321,7 @@ Respond in JSON only: {"approved": true/false, "additional": ["suggestion1", "su
       lines.push('No changes needed — current settings are optimal for market conditions.');
     }
 
-    const hours = Number(process.env.CONFIG_MANAGER_INTERVAL_HOURS || 4);
+    const hours = Number(process.env.CONFIG_MANAGER_INTERVAL_HOURS || 2);
     lines.push('');
     lines.push(`Next review: in ${hours} hours`);
 

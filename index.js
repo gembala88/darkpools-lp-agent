@@ -805,11 +805,11 @@ Summarize the current portfolio health, total fees earned, and performance of al
     await maybeRunMissedBriefing();
   }, { timezone: 'UTC' });
 
-  // Config Manager — every 4 hours (autonomous settings optimizer)
+  // Config Manager — every 2 hours (autonomous settings optimizer)
   const configManager = new ConfigManagerService();
   const configManagerInterval = setInterval(() => {
     configManager.run().catch(err => log("cron_error", `Config Manager failed: ${err.message}`));
-  }, 4 * 60 * 60 * 1000);
+  }, 2 * 60 * 60 * 1000);
   setTimeout(() => {
     configManager.run().catch(err => log("cron_error", `Config Manager startup run failed: ${err.message}`));
   }, 5 * 60 * 1000);

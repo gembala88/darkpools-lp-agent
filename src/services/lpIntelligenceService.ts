@@ -83,6 +83,12 @@ export class LPIntelligenceService {
   private deployMemEngine: DeploymentMemoryEngine;
   private scamEngine: ScamDetectionEngine;
 
+  private static lastEmergencyTrigger = 0;
+  private static previousRegime = '';
+  private static consecutiveHighRug = 0;
+  private static consecutiveSameReject = 0;
+  private static lastRejectReason = '';
+
   constructor() {
     this.marketData = new MarketDataService();
     this.alphaEngine = new LpAlphaScoreEngine();
@@ -348,6 +354,10 @@ export class LPIntelligenceService {
         chiefConfidence: agentChiefResult.confidence,
         chiefSignals: agentChiefResult.signals,
       };
+
+      // Phase 89b — Config Manager Dynamic Triggers
+      const whaleExitPct = 100 - (whaleResult?.score ?? 50);
+      await this.checkConfigTriggers(regime, rugProbability, whaleExitPct, filterResult.rejectReasons);
     } catch (error) {
       this.logger.error(`Evaluation failed: ${error instanceof Error ? error.message : String(error)}`);
       this.telemetry.record('evaluation_error', Date.now() - startTime, {
@@ -356,6 +366,66 @@ export class LPIntelligenceService {
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
+    }
+  }
+
+  private async checkConfigTriggers(currentRegime: string, rugProbability: number, whaleExit: number, rejectReasons: string[]): Promise<void> {
+    const now = Date.now();
+    const cooldownMs = 30 * 60 * 1000;
+    if (now - LPIntelligenceService.lastEmergencyTrigger < cooldownMs) return;
+
+    let triggered = false;
+    let reason = '';
+
+    if (whaleExit > 70) {
+      triggered = true;
+      reason = `whaleExitProbability=${whaleExit.toFixed(1)}%`;
+    }
+
+    if (currentRegime !== LPIntelligenceService.previousRegime && LPIntelligenceService.previousRegime !== '') {
+      triggered = true;
+      reason = `marketRegime changed: ${LPIntelligenceService.previousRegime} → ${currentRegime}`;
+    }
+    LPIntelligenceService.previousRegime = currentRegime;
+
+    if (rugProbability > 50) {
+      LPIntelligenceService.consecutiveHighRug++;
+      if (LPIntelligenceService.consecutiveHighRug >= 3) {
+        triggered = true;
+        reason = `avg rugProbability > 50 (${LPIntelligenceService.consecutiveHighRug}x consecutive)`;
+        LPIntelligenceService.consecutiveHighRug = 0;
+      }
+    } else {
+      LPIntelligenceService.consecutiveHighRug = 0;
+    }
+
+    if (rejectReasons.length > 0) {
+      const primary = rejectReasons[0];
+      if (primary === LPIntelligenceService.lastRejectReason) {
+        LPIntelligenceService.consecutiveSameReject++;
+        if (LPIntelligenceService.consecutiveSameReject >= 3) {
+          triggered = true;
+          reason = `3 consecutive rejects: "${primary}"`;
+          LPIntelligenceService.consecutiveSameReject = 0;
+        }
+      } else {
+        LPIntelligenceService.consecutiveSameReject = 1;
+        LPIntelligenceService.lastRejectReason = primary;
+      }
+    } else {
+      LPIntelligenceService.consecutiveSameReject = 0;
+    }
+
+    if (triggered) {
+      LPIntelligenceService.lastEmergencyTrigger = now;
+      this.logger.info(`[CONFIG_MANAGER] Emergency trigger: ${reason}`);
+      try {
+        const mod = await import('./configManagerService.js');
+        const mgr = new mod.ConfigManagerService();
+        mgr.run().catch(e => this.logger.error(`ConfigManager emergency run failed: ${e.message}`));
+      } catch (e) {
+        this.logger.warn(`Could not trigger ConfigManager: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
   }
 }
