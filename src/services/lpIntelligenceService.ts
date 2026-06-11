@@ -119,6 +119,7 @@ export class LPIntelligenceService {
       priceChanges?: number[];
       marketCap?: number;
       tokenAgeHours?: number;
+      laneOverride?: number;
     }
   ): Promise<MasterLPOutput> {
     this.logger.info(`Evaluating pool ${poolAddress} (${tokenMint})`);
@@ -269,6 +270,13 @@ export class LPIntelligenceService {
         bundlerRisk: bundlerRisk as any,
         concentrationRisk,
       };
+
+      const laneOverride = options?.laneOverride;
+      if (laneOverride != null) {
+        this.noDeployFilter.setMinLpAlphaScore(laneOverride);
+      } else {
+        this.noDeployFilter.resetMinLpAlphaScore();
+      }
 
       const filterResult = this.noDeployFilter.evaluate(filterCriteria);
 

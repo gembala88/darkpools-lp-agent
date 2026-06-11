@@ -148,6 +148,8 @@ export type TrendState = 'STRONG_BULLISH' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 
 
 export type MarketPsychology = 'FEAR' | 'NEUTRAL' | 'GREED' | 'EUPHORIA' | 'CAPITULATION';
 
+export type LaneName = 'institutional' | 'balanced' | 'moonshot';
+
 export interface DeployRecord {
   poolAddress: string;
   tokenMint: string;
@@ -159,6 +161,7 @@ export interface DeployRecord {
   loss: number;
   apr: number;
   feeGenerated: number;
+  lane?: LaneName;
   timestamp: Date;
 }
 

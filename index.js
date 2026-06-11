@@ -11,7 +11,8 @@ import { getTopCandidates } from "./tools/screening.js";
 import { LPIntelligenceService } from "./dist/services/lpIntelligenceService.js";
 import { ConfigManagerService } from "./dist/services/configManagerService.js";
 import { formatGmgnCandidateForPrompt } from "./tools/gmgn.js";
-import { config, reloadScreeningThresholds, computeDeployAmount } from "./config.js";
+import { config, reloadScreeningThresholds, computeDeployAmount, lanesConfig, activeLaneSetting, updateActiveLaneSetting } from "./config.js";
+import { engines } from "./dist/engines/index.js";
 import { evolveThresholds, getPerformanceSummary } from "./lessons.js";
 import { executeTool, registerCronRestarter } from "./tools/executor.js";
 import {
@@ -101,7 +102,9 @@ let _managementBusy = false; // prevents overlapping management cycles
 let _screeningBusy = false;  // prevents overlapping screening cycles
 let _screeningLastTriggered = 0; // epoch ms — prevents management from spamming screening
 let _pollTriggeredAt = 0; // epoch ms — cooldown for poller-triggered management
-let _lastDecision = { decision: "N/A", pool: null, reason: null, time: null };
+let _lastDecision = { decision: "N/A", pool: null, reason: null, time: null, lane: null };
+let _activeLane = "auto";
+let _resolvedLane = "balanced";
 const _peakConfirmTimers = new Map();
 const _trailingDropConfirmTimers = new Map();
 const TRAILING_PEAK_CONFIRM_DELAY_MS = 15_000;
@@ -457,6 +460,41 @@ export async function runScreeningCycle({ silent = false } = {}) {
     const strategyBlock = `DEPLOY STRATEGY: ${deployStrategy} (from config) | bins_above: 0 (FIXED — never change) | deposit: SOL only (amount_y, amount_x=0)`
       + (activeStrategy ? `\nSTRATEGY CONTEXT: ${activeStrategy.name} — entry: ${activeStrategy.entry?.condition || "n/a"} | exit: ${activeStrategy.exit?.notes || "n/a"} | best for: ${activeStrategy.best_for}` : "");
 
+    // ── Lane Selection ─────────────────────
+    const previousLane = _resolvedLane;
+    _activeLane = activeLaneSetting;
+    if (_activeLane === "auto") {
+      const laneSelector = engines.laneSelector;
+      laneSelector.setUserLanes(lanesConfig);
+      const laneResult = laneSelector.selectLane({
+        dryRun: isDryRun,
+        marketRegime: _latestRegime,
+        psychology: _latestPsychology,
+      });
+      _resolvedLane = laneResult;
+    } else {
+      _resolvedLane = _activeLane;
+    }
+    const laneCfg = lanesConfig[_resolvedLane] || lanesConfig.balanced;
+    log("cron", `Active lane: ${_resolvedLane} (user setting: ${_activeLane})`);
+    if (_resolvedLane !== previousLane && previousLane) {
+      sendToChannel(`🛣️ Lane switched: ${previousLane} → ${_resolvedLane}`, "info").catch(() => {});
+    }
+
+    // Apply lane overrides to effective config for this cycle
+    const laneScreeningOverrides = laneCfg.screeningOverrides || {};
+    for (const [key, val] of Object.entries(laneScreeningOverrides)) {
+      if (config.screening[key] !== undefined && val != null) {
+        config.screening[key] = val;
+      }
+    }
+    // Lane maxPositions and deployAmountSol override for this cycle
+    if (laneCfg.maxPositions != null) config.risk.maxPositions = laneCfg.maxPositions;
+    if (laneCfg.deployAmountSol != null) config.management.deployAmountSol = laneCfg.deployAmountSol;
+    const dryRunAlphaOverride = isDryRun ? 50 : null;
+    const effectiveMinAlpha = dryRunAlphaOverride !== null ? dryRunAlphaOverride : (laneCfg.minLpAlphaScore ?? 70);
+    log("cron", `Lane "${_resolvedLane}" active: minAlpha=${effectiveMinAlpha}, maxPos=${config.risk.maxPositions}, deployAmt=${config.management.deployAmountSol}`);
+
     // Fetch top candidates, then recon each sequentially with a small delay to avoid 429s
     const topCandidates = await getTopCandidates({ limit: 10 }).catch((e) => ({ _error: e.message }));
     if (topCandidates?._error) {
@@ -535,7 +573,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
         reason: funnelBlock || combinedExamples || "All candidates filtered before deploy",
         rejected: combined.slice(0, 5).map((entry) => `${entry.name}: ${entry.reason}`),
       });
-      _lastDecision = { decision: "NO_CANDIDATES", pool: null, reason: funnelBlock || combined.slice(0,3).map(e => `${e.name}: ${e.reason}`).join("; "), time: new Date().toISOString() };
+      _lastDecision = { decision: "NO_CANDIDATES", pool: null, reason: funnelBlock || combined.slice(0,3).map(e => `${e.name}: ${e.reason}`).join("; "), time: new Date().toISOString(), lane: _resolvedLane };
       sendToChannel("🔍 Screening: No candidates\nFiltered: " + (combined.slice(0, 3).map(e => `${e.name}: ${e.reason}`).join("\n") || "all filtered before deploy"), "info").catch(() => {});
       return screenReport;
     }
@@ -573,7 +611,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
           pool: passing[0].pool?.pool,
           pool_name: candidateName,
         });
-        _lastDecision = { decision: "SKIP", pool: candidateName, reason: skipReason, time: new Date().toISOString() };
+        _lastDecision = { decision: "SKIP", pool: candidateName, reason: skipReason, time: new Date().toISOString(), lane: _resolvedLane };
         sendToChannel("⛔ NO DEPLOY\nBest: " + candidateName + "\nReason: " + skipReason, "info").catch(() => {});
         return screenReport;
       }
@@ -586,10 +624,12 @@ export async function runScreeningCycle({ silent = false } = {}) {
 
     // AI Intelligence Layer pool evaluation
     const lpIntelligence = new LPIntelligenceService();
+    const laneOverride = effectiveMinAlpha;
     const aiEvals = await Promise.allSettled(passing.map(({ pool }) =>
       lpIntelligence.evaluatePool(pool.pool, pool.base?.mint || pool.base_mint, {
         tokenName: pool.name, tokenSymbol: pool.symbol,
         marketCap: pool.mcap, tokenAgeHours: pool.token_age_hours,
+        laneOverride,
       }).catch(() => null)
     ));
     const aiMap = {};
@@ -678,9 +718,12 @@ export async function runScreeningCycle({ silent = false } = {}) {
     let deployAttempted = false;
     let deploySucceeded = false;
     let _lastDeployPool = null;
+    const laneLabel = _resolvedLane.charAt(0).toUpperCase() + _resolvedLane.slice(1);
+    const laneLine = `Active lane: ${laneLabel} (minLpAlphaScore=${effectiveMinAlpha}, maxPositions=${config.risk.maxPositions})`;
     const { content } = await agentLoop(`
 SCREENING CYCLE
 ${strategyBlock}
+${laneLine}
 Positions: ${prePositions.total_positions}/${config.risk.maxPositions} | SOL: ${currentBalance.sol.toFixed(3)} | Deploy: ${deployAmount} SOL
 
 PRE-LOADED CANDIDATES (${passing.length} pools):
@@ -771,7 +814,7 @@ IMPORTANT:
         summary: "LLM chose no deploy",
         reason: stripThink(content).slice(0, 500),
       });
-      _lastDecision = { decision: "NO_DEPLOY", pool: null, reason: "LLM chose not to deploy", time: new Date().toISOString() };
+      _lastDecision = { decision: "NO_DEPLOY", pool: null, reason: "LLM chose not to deploy", time: new Date().toISOString(), lane: _resolvedLane };
       sendToChannel("⛔ NO DEPLOY: LLM chose not to deploy any pool", "info").catch(() => {});
     } else if (!deploySucceeded) {
       appendDecision({
@@ -780,10 +823,10 @@ IMPORTANT:
         summary: deployAttempted ? "Deploy attempt did not succeed" : "No successful deploy in screening cycle",
         reason: stripThink(content).slice(0, 500),
       });
-      _lastDecision = { decision: "DEPLOY_FAILED", pool: null, reason: deployAttempted ? "Deploy attempt did not succeed" : "No successful deploy", time: new Date().toISOString() };
+      _lastDecision = { decision: "DEPLOY_FAILED", pool: null, reason: deployAttempted ? "Deploy attempt did not succeed" : "No successful deploy", time: new Date().toISOString(), lane: _resolvedLane };
       if (deployAttempted) sendToChannel("⛔ NO DEPLOY: Deploy attempt did not succeed", "info").catch(() => {});
     } else if (deploySucceeded) {
-      _lastDecision = { decision: process.env.DRY_RUN === 'true' ? "DRY_RUN_DEPLOY" : "DEPLOY", pool: _lastDeployPool, reason: process.env.DRY_RUN === 'true' ? "Simulated deploy (DRY RUN)" : "Position deployed successfully", time: new Date().toISOString() };
+      _lastDecision = { decision: process.env.DRY_RUN === 'true' ? "DRY_RUN_DEPLOY" : "DEPLOY", pool: _lastDeployPool, reason: process.env.DRY_RUN === 'true' ? "Simulated deploy (DRY RUN)" : "Position deployed successfully", time: new Date().toISOString(), lane: _resolvedLane };
       if (process.env.DRY_RUN === 'true') {
         sendToChannel("🧪 DRY RUN Deploy: " + (_lastDeployPool || "unknown") + " (simulated)", "info").catch(() => {});
       } else {
@@ -1087,7 +1130,7 @@ const READ_ONLY_COMMANDS = [
   "/mode", "/filters", "/agent", "/wallet", "/status",
   "/positions", "/help", "/config", "/candidates",
   "/hive", "/channel", "/pool", "/briefing", "/screen",
-  "/setmodel", "/setrpc"
+  "/setmodel", "/setrpc", "/lane"
 ];
 
 const _telegramQueue = []; // queued messages received while agent was busy
@@ -1771,6 +1814,55 @@ async function telegramHandler(msg) {
     return;
   }
 
+  // ── Lane command ────────────────────────
+  const laneMatch = text.match(/^\/lane\s*(auto|institutional|balanced|moonshot)?$/i);
+  if (laneMatch) {
+    const choice = laneMatch[1] ? laneMatch[1].toLowerCase() : null;
+    if (!choice) {
+      const laneLabel = _resolvedLane.charAt(0).toUpperCase() + _resolvedLane.slice(1);
+      const settingLabel = activeLaneSetting === "auto" ? "auto" : activeLaneSetting;
+      await sendMessage([
+        `🏁 Active lane: ${laneLabel} (setting: ${settingLabel})`,
+        "",
+        "Available lanes:",
+        "  /lane auto — auto-select based on market",
+        "  /lane institutional — safe/conservative (minAlpha=75, maxPos=2)",
+        "  /lane balanced — moderate (minAlpha=70, maxPos=3)",
+        "  /lane moonshot — aggressive (minAlpha=60, maxPos=4)",
+      ].join("\n")).catch(() => {});
+      return;
+    }
+    try {
+      const result = await executeTool("update_config", {
+        changes: { lanes: { activeLane: choice } },
+        reason: "Telegram /lane",
+      });
+      if (!result?.success) {
+        await sendMessage("Failed to update lane.").catch(() => {});
+        return;
+      }
+      updateActiveLaneSetting(choice);
+      _activeLane = choice;
+      if (choice === "auto") {
+        const laneSelector = engines.laneSelector;
+        laneSelector.setUserLanes(lanesConfig);
+        _resolvedLane = laneSelector.selectLane({
+          dryRun: process.env.DRY_RUN === 'true',
+          marketRegime: _latestRegime,
+          psychology: _latestPsychology,
+        });
+      } else {
+        _resolvedLane = choice;
+      }
+      const label = _resolvedLane.charAt(0).toUpperCase() + _resolvedLane.slice(1);
+      await sendMessage(`✅ Lane set to ${choice} (resolved: ${label})`).catch(() => {});
+      log("lane", `Lane changed to ${choice} (resolved: ${_resolvedLane})`);
+    } catch (e) {
+      await sendMessage(`Error: ${e.message}`).catch(() => {});
+    }
+    return;
+  }
+
   if (text === "/settings" || text === "/menu" || text === "/configmenu") {
     await showSettingsMenu().catch((e) => sendMessage(`Settings error: ${e.message}`).catch(() => {}));
     return;
@@ -2179,10 +2271,12 @@ async function telegramHandler(msg) {
       const model = config.llm.screeningModel || "?";
       const isDryRun = process.env.DRY_RUN === 'true';
       let masked = String(wallet.wallet || "?").replace(/^(.{4}).*(.{3})$/, "$1...$2");
-      const lastDecisionStr = _lastDecision ? `${_lastDecision.decision}${_lastDecision.pool ? ` — ${_lastDecision.pool}` : ""}${_lastDecision.reason ? ` (${_lastDecision.reason.slice(0, 80)})` : ""}${_lastDecision.time ? ` @ ${new Date(_lastDecision.time).toLocaleTimeString()}` : ""}` : "N/A";
+      const laneLabel = _resolvedLane ? _resolvedLane.charAt(0).toUpperCase() + _resolvedLane.slice(1) : "?";
+      const lastDecisionStr = `${_lastDecision?.decision || "N/A"}${_lastDecision?.pool ? ` — ${_lastDecision.pool}` : ""}${_lastDecision?.reason ? ` (${_lastDecision.reason.slice(0, 80)})` : ""}${_lastDecision?.lane ? ` [${_lastDecision.lane}]` : ""}${_lastDecision?.time ? ` @ ${new Date(_lastDecision.time).toLocaleTimeString()}` : ""}`;
       await sendMessage([
         "🤖 Agent Status",
         `- Mode: ${isDryRun ? "DRY RUN ✅" : "LIVE 🔴"}`,
+        `- Lane: ${laneLabel}${activeLaneSetting === "auto" ? " (auto)" : ""}`,
         `- Model: ${model}`,
         `- Screening: every ${config.schedule.screeningIntervalMin}m`,
         `- Management: every ${config.schedule.managementIntervalMin}m`,
@@ -2190,11 +2284,6 @@ async function telegramHandler(msg) {
         `- Last decision: ${lastDecisionStr}`,
         `- Market regime: ${regime}`,
         `- Psychology: ${psychology}`,
-        `- Wallet: ${masked}`,
-        `- Balance: ${isDryRun ? (config.management.dryRunVirtualBalance || 2.0) + " SOL (virtual/simulated)" : (wallet.sol ?? "?") + " SOL"}`,
-        `- Market regime: ${regime}`,
-        `- Psychology: ${psychology}`,
-        `- Wallet: ${masked}`,
         `- Balance: ${isDryRun ? (config.management.dryRunVirtualBalance || 2.0) + " SOL (virtual/simulated)" : (wallet.sol ?? "?") + " SOL"}`,
       ].join("\n")).catch(() => {});
     } catch (e) { await sendMessage(`Error: ${e.message}`).catch(() => {}); }

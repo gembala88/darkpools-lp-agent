@@ -74,6 +74,42 @@ function gmgnArray(key, legacyKey, fallback) {
   return fallback;
 }
 
+// ─── Lane Configuration (from user-config.json) ──
+function loadLanesConfig() {
+  const lanes = u.lanes ?? {};
+  return {
+    activeLane: lanes.activeLane ?? 'auto',
+    institutional: {
+      minLpAlphaScore: lanes.institutional?.minLpAlphaScore ?? 75,
+      maxPositions: lanes.institutional?.maxPositions ?? 2,
+      deployAmountSol: lanes.institutional?.deployAmountSol ?? 0.3,
+      sizingMultiplier: lanes.institutional?.sizingMultiplier ?? 0.8,
+      screeningOverrides: lanes.institutional?.screeningOverrides ?? {},
+    },
+    balanced: {
+      minLpAlphaScore: lanes.balanced?.minLpAlphaScore ?? 70,
+      maxPositions: lanes.balanced?.maxPositions ?? 3,
+      deployAmountSol: lanes.balanced?.deployAmountSol ?? 0.5,
+      sizingMultiplier: lanes.balanced?.sizingMultiplier ?? 1.0,
+      screeningOverrides: lanes.balanced?.screeningOverrides ?? {},
+    },
+    moonshot: {
+      minLpAlphaScore: lanes.moonshot?.minLpAlphaScore ?? 60,
+      maxPositions: lanes.moonshot?.maxPositions ?? 4,
+      deployAmountSol: lanes.moonshot?.deployAmountSol ?? 0.7,
+      sizingMultiplier: lanes.moonshot?.sizingMultiplier ?? 1.3,
+      screeningOverrides: lanes.moonshot?.screeningOverrides ?? {},
+    },
+  };
+}
+
+export const lanesConfig = loadLanesConfig();
+export let activeLaneSetting = lanesConfig.activeLane;
+
+export function updateActiveLaneSetting(value) {
+  activeLaneSetting = value;
+}
+
 export const config = {
   // ─── Risk Limits ─────────────────────────
   risk: {
@@ -364,5 +400,17 @@ export function reloadScreeningThresholds() {
       if (key in g && key !== "apiKey") g[key] = value;
     }
     if (freshGmgn.apiKey) g.apiKey = freshGmgn.apiKey;
+  } catch { /* ignore */ }
+  // Reload lane config
+  try {
+    const fresh = readJsonIfExists(USER_CONFIG_PATH);
+    const l = fresh.lanes ?? {};
+    if (l.activeLane != null) activeLaneSetting = l.activeLane;
+    if (l.institutional?.minLpAlphaScore != null) lanesConfig.institutional.minLpAlphaScore = l.institutional.minLpAlphaScore;
+    if (l.balanced?.minLpAlphaScore != null) lanesConfig.balanced.minLpAlphaScore = l.balanced.minLpAlphaScore;
+    if (l.moonshot?.minLpAlphaScore != null) lanesConfig.moonshot.minLpAlphaScore = l.moonshot.minLpAlphaScore;
+    if (l.institutional?.maxPositions != null) lanesConfig.institutional.maxPositions = l.institutional.maxPositions;
+    if (l.balanced?.maxPositions != null) lanesConfig.balanced.maxPositions = l.balanced.maxPositions;
+    if (l.moonshot?.maxPositions != null) lanesConfig.moonshot.maxPositions = l.moonshot.maxPositions;
   } catch { /* ignore */ }
 }

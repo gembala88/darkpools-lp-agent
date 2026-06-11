@@ -29,13 +29,21 @@ export interface FilterResult {
 }
 
 export class NoDeployFilterV2 {
-  private readonly thresholds = {
+  private thresholds = {
     minLpAlphaScore: 70,
     minConfidence: 75,
     minBuySellRatio: 0.90,
     minTokenAgeHours: 2,
     minMarketCap: 100000,
   };
+
+  setMinLpAlphaScore(value: number): void {
+    this.thresholds.minLpAlphaScore = value;
+  }
+
+  resetMinLpAlphaScore(): void {
+    this.thresholds.minLpAlphaScore = 70;
+  }
 
   evaluate(criteria: FilterCriteria): FilterResult {
     const rejectReasons: string[] = [];
