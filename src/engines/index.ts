@@ -20,6 +20,11 @@ import { DeploymentDecisionEngine } from './deploymentDecisionEngine.js';
 import { PositionSizingEngine } from './positionSizingEngine.js';
 import { RebalanceEngine } from './rebalanceEngine.js';
 import { LpMomentumEngine } from './lpMomentumEngine.js';
+import { DeploymentMemoryEngine } from './deploymentMemoryEngine.js';
+import { SelfLearningEngine } from './selfLearningEngine.js';
+import { DynamicWeightEngine } from './dynamicWeightEngine.js';
+import { CandleIntelligenceEngine } from './candleIntelligenceEngine.js';
+import { MarketPsychologyEngine } from './marketPsychologyEngine.js';
 
 export { BaseEngine, type EngineConfig, type EngineResult } from './baseEngine.js';
 export { TxMomentumEngine } from './txMomentumEngine.js';
@@ -44,9 +49,15 @@ export { DeploymentDecisionEngine } from './deploymentDecisionEngine.js';
 export { PositionSizingEngine } from './positionSizingEngine.js';
 export { RebalanceEngine } from './rebalanceEngine.js';
 export { LpMomentumEngine } from './lpMomentumEngine.js';
+export { DeploymentMemoryEngine } from './deploymentMemoryEngine.js';
+export { SelfLearningEngine } from './selfLearningEngine.js';
+export { DynamicWeightEngine } from './dynamicWeightEngine.js';
+export { CandleIntelligenceEngine } from './candleIntelligenceEngine.js';
+export { MarketPsychologyEngine } from './marketPsychologyEngine.js';
 export type { DeploymentDecision } from './deploymentDecisionEngine.js';
 export type { RebalanceAction } from './rebalanceEngine.js';
 export type { VolatilityCategory } from './volatilityEngine.js';
+export type { EngineWeights } from './dynamicWeightEngine.js';
 
 export const engines = {
   txMomentum: new TxMomentumEngine(),
@@ -71,6 +82,11 @@ export const engines = {
   positionSizing: new PositionSizingEngine(),
   rebalance: new RebalanceEngine(),
   lpMomentum: new LpMomentumEngine(),
+  deploymentMemory: new DeploymentMemoryEngine(),
+  selfLearning: new SelfLearningEngine(),
+  dynamicWeight: new DynamicWeightEngine(),
+  candleIntelligence: new CandleIntelligenceEngine(),
+  marketPsychology: new MarketPsychologyEngine(),
 } as const;
 
 export type Engines = typeof engines;

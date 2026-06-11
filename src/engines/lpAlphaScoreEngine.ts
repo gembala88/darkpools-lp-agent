@@ -12,6 +12,7 @@ import { SmartLPEngine } from './smartLPEngine.js';
 import { RangeEfficiencyEngine } from './rangeEfficiencyEngine.js';
 import { RiskEngineV2 } from './riskEngineV2.js';
 import { LpMomentumEngine } from './lpMomentumEngine.js';
+import type { EngineWeights } from './dynamicWeightEngine.js';
 
 interface LpAlphaWeights {
   feeAprPrediction: number;
@@ -91,12 +92,14 @@ export class LpAlphaScoreEngine extends BaseEngine {
     tokenAgeHours?: number;
     activeLPs?: string[];
     priceChanges?: number[];
+    dynamicWeights?: EngineWeights;
   }): Promise<EngineResult> {
     if (!params?.poolAddress || !params?.tokenMint) {
       return { score: 0, signal: 'bearish', reason: 'Missing poolAddress or tokenMint', metadata: {} };
     }
 
     const { poolAddress, tokenMint } = params;
+    const activeWeights = params.dynamicWeights ?? this.weights;
     const results = await Promise.allSettled([
       this.engines.feeAprPrediction.evaluate({ poolAddress, tokenMint }).catch(() => ({ score: 0, signal: 'neutral' as const, reason: '', metadata: {} })),
       this.engines.liquidityUtilization.evaluate({ poolAddress }).catch(() => ({ score: 0, signal: 'neutral' as const, reason: '', metadata: {} })),
@@ -146,18 +149,18 @@ export class LpAlphaScoreEngine extends BaseEngine {
     };
 
     const rawScore =
-      feeAprScore * this.weights.feeAprPrediction +
-      utilizationScore * this.weights.liquidityUtilization +
-      txScore * this.weights.txMomentum +
-      inflowScore * this.weights.capitalInflow +
-      stabilityScore * this.weights.liquidityStability +
-      smartMoneyScore * this.weights.smartMoney +
-      smartLPScore * this.weights.smartLP +
-      rangeScore * this.weights.rangeEfficiency +
-      holderScore * this.weights.holderGrowth +
-      narrativeScore * this.weights.narrative +
-      (100 - riskScore) * this.weights.risk +
-      lpMomentumScore * this.weights.lpMomentum;
+      feeAprScore * activeWeights.feeAprPrediction +
+      utilizationScore * activeWeights.liquidityUtilization +
+      txScore * activeWeights.txMomentum +
+      inflowScore * activeWeights.capitalInflow +
+      stabilityScore * activeWeights.liquidityStability +
+      smartMoneyScore * activeWeights.smartMoney +
+      smartLPScore * activeWeights.smartLP +
+      rangeScore * activeWeights.rangeEfficiency +
+      holderScore * activeWeights.holderGrowth +
+      narrativeScore * activeWeights.narrative +
+      (100 - riskScore) * activeWeights.risk +
+      lpMomentumScore * activeWeights.lpMomentum;
 
     const score = this.normalizeScore(rawScore);
     const confidence = this.calculateConfidence(results);

@@ -1,5 +1,6 @@
 import { BaseEngine, EngineResult } from './baseEngine.js';
 import { DeploymentDecision } from './deploymentDecisionEngine.js';
+import type { MarketRegime } from '../types/index.js';
 
 interface SizingConfig {
   baseAllocationPct: number;
@@ -11,9 +12,16 @@ interface SizingConfig {
   confidenceMultiplier: number;
 }
 
+const REGIME_CAP: Partial<Record<MarketRegime, number>> = {
+  DISTRIBUTION: 20,
+  PANIC: 10,
+  EUPHORIA: 25,
+  TRENDING_BEARISH: 25,
+};
+
 export class PositionSizingEngine extends BaseEngine {
   readonly name = 'position_sizing';
-  readonly version = '1.0.0';
+  readonly version = '2.0.0';
 
   private config_: SizingConfig = {
     baseAllocationPct: 35,
@@ -31,23 +39,27 @@ export class PositionSizingEngine extends BaseEngine {
     deploymentDecision?: DeploymentDecision;
     availableCapital?: number;
     riskScore?: number;
+    marketRegime?: MarketRegime;
   }): Promise<EngineResult> {
     const {
       lpAlphaScore = 0,
       confidence = 0,
-      deploymentDecision = 'WATCHLIST',
+      deploymentDecision = 'WATCHLIST' as DeploymentDecision,
       availableCapital = 1,
       riskScore = 50,
+      marketRegime,
     } = params ?? {};
 
     const metadata: Record<string, unknown> = {};
 
-    const allocationPct = this.calculateAllocationPct(
-      lpAlphaScore,
-      confidence,
-      deploymentDecision,
-      riskScore
-    );
+    let allocationPct = this.calculateAllocationPct(lpAlphaScore, confidence, deploymentDecision, riskScore);
+
+    // Apply regime cap
+    if (marketRegime && REGIME_CAP[marketRegime] != null) {
+      allocationPct = Math.min(allocationPct, REGIME_CAP[marketRegime]!);
+      metadata.regimeCapped = true;
+      metadata.regimeMaxAllocation = REGIME_CAP[marketRegime];
+    }
 
     const recommendedCapital = Math.max(
       this.config_.minCapitalSol,
@@ -57,11 +69,12 @@ export class PositionSizingEngine extends BaseEngine {
     metadata.allocationPct = allocationPct;
     metadata.recommendedCapital = recommendedCapital;
     metadata.availableCapital = availableCapital;
+    metadata.marketRegime = marketRegime;
 
     return {
       score: allocationPct,
       signal: allocationPct > 0 ? 'bullish' : 'neutral',
-      reason: `allocation=${allocationPct.toFixed(1)}%, capital=${recommendedCapital.toFixed(2)} SOL`,
+      reason: `allocation=${allocationPct.toFixed(1)}%, capital=${recommendedCapital.toFixed(2)} SOL${marketRegime && REGIME_CAP[marketRegime] != null ? ` (capped by ${marketRegime})` : ''}`,
       metadata,
     };
   }

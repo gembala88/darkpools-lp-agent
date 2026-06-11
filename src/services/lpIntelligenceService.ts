@@ -5,6 +5,10 @@ import { PositionSizingEngine } from '../engines/positionSizingEngine.js';
 import { NoDeployFilterV2, FilterCriteria } from '../filters/noDeployFilterV2.js';
 import { Logger } from '../logging/logger.js';
 import { TelemetryService } from '../telemetry/telemetryService.js';
+import { engines } from '../engines/index.js';
+import { CandleIntelligenceEngine } from '../engines/candleIntelligenceEngine.js';
+import { MarketPsychologyEngine } from '../engines/marketPsychologyEngine.js';
+import { DeploymentMemoryEngine } from '../engines/deploymentMemoryEngine.js';
 import { aiEngines } from '../ai/index.js';
 import type { AIWeights } from '../ai/dynamicWeightEngine.js';
 
@@ -40,6 +44,10 @@ export interface MasterLPOutput {
   aiConfidence?: number;
   aiChiefRecommendation?: string;
   aiChiefWarnings?: string[];
+  candleIntelligenceScore?: number;
+  marketPsychologyScore?: number;
+  deploymentMemoryScore?: number;
+  candleTrend?: string;
 }
 
 export class LPIntelligenceService {
@@ -51,12 +59,19 @@ export class LPIntelligenceService {
   private logger: Logger;
   private telemetry: TelemetryService;
 
+  private candleEngine: CandleIntelligenceEngine;
+  private psychEngine: MarketPsychologyEngine;
+  private deployMemEngine: DeploymentMemoryEngine;
+
   constructor() {
     this.marketData = new MarketDataService();
     this.alphaEngine = new LpAlphaScoreEngine();
     this.decisionEngine = new DeploymentDecisionEngine();
     this.sizingEngine = new PositionSizingEngine();
     this.noDeployFilter = new NoDeployFilterV2();
+    this.candleEngine = new CandleIntelligenceEngine();
+    this.psychEngine = new MarketPsychologyEngine();
+    this.deployMemEngine = engines.deploymentMemory as DeploymentMemoryEngine;
     this.logger = new Logger('LPIntelligence');
     this.telemetry = new TelemetryService();
   }
@@ -91,6 +106,23 @@ export class LPIntelligenceService {
       if (fullSyncResult.liquidity) dataAvailable.add('liquidity');
       if (fullSyncResult.market) dataAvailable.add('market_data');
 
+      const candleResult = await this.candleEngine.evaluate({
+        poolAddress, tokenMint, priceChanges: options?.priceChanges,
+      });
+      const opPsychResult = await this.psychEngine.evaluate({
+        poolAddress, tokenMint, priceChanges: options?.priceChanges,
+      });
+      const candleScore = candleResult.score;
+      const psychScore = opPsychResult.score;
+      const trendState = (candleResult.metadata as any).trendState ?? 'NEUTRAL';
+      const psychology = (opPsychResult.metadata as any).psychology ?? 'NEUTRAL';
+
+      const regime = (await aiEngines.marketRegime.evaluate({ poolAddress, tokenMint }).catch(() => ({ metadata: { regime: 'RANGING' } }))).metadata?.regime as string ?? 'RANGING';
+
+      // Get dynamic weights for lpAlphaScore sub-engines based on market regime
+      const dynWeightResult = await engines.dynamicWeight.evaluate({ marketRegime: regime as any, confidence: 80 });
+      const engineWeights = (dynWeightResult.metadata?.weights) as any;
+
       const alphaResult = await this.alphaEngine.evaluate({
         poolAddress,
         tokenMint,
@@ -105,37 +137,41 @@ export class LPIntelligenceService {
         tokenAgeHours: options?.tokenAgeHours,
         activeLPs: options?.activeLPs,
         priceChanges: options?.priceChanges,
+        dynamicWeights: engineWeights,
       });
 
       const meta = alphaResult.metadata;
       const componentScores = (meta.componentScores ?? meta) as Record<string, number>;
-      const lpAlphaScore = alphaResult.score;
+      let lpAlphaScore = alphaResult.score;
       const confidence = Number(meta.confidence ?? 80);
 
+      // Apply deployment memory adjustment
+      const deployMemResult = await this.deployMemEngine.evaluate({
+        poolAddress, currentScore: lpAlphaScore, marketRegime: regime as any, tokenMint,
+      });
+      lpAlphaScore = deployMemResult.score;
+
       const aiResults = await Promise.allSettled([
-        aiEngines.marketRegime.evaluate({ poolAddress, tokenMint: tokenMint, ...options }).then(r => ({ engine: 'marketRegime', ...r })),
         aiEngines.poolActivity.evaluate({ poolAddress, tokenMint: tokenMint, ...options }).then(r => ({ engine: 'poolActivity', ...r })),
         aiEngines.accumulation.evaluate({ poolAddress, tokenMint: tokenMint, ...options }).then(r => ({ engine: 'accumulation', ...r })),
         aiEngines.whaleExit.evaluate({ poolAddress, tokenMint: tokenMint, ...options }).then(r => ({ engine: 'whaleExit', ...r })),
         aiEngines.smartMoneyFlow.evaluate({ poolAddress, tokenMint: tokenMint, ...options }).then(r => ({ engine: 'smartMoneyFlow', ...r })),
         aiEngines.candleIntelligence.evaluate({ poolAddress, tokenMint: tokenMint, ...options }).then(r => ({ engine: 'candleIntelligence', ...r })),
         aiEngines.marketPsychology.evaluate({ poolAddress, tokenMint: tokenMint, ...options }).then(r => ({ engine: 'marketPsychology', ...r })),
-        aiEngines.selfLearning.evaluate({ poolAddress, ...options }).then(r => ({ engine: 'selfLearning', ...r })),
+        aiEngines.selfLearning.evaluate({ poolAddress, currentScore: lpAlphaScore, ...options }).then(r => ({ engine: 'selfLearning', ...r })),
         aiEngines.deploymentMemory.evaluate({ poolAddress, currentScore: lpAlphaScore, ...options }).then(r => ({ engine: 'deploymentMemory', ...r })),
       ]);
 
       const successfulAI = aiResults.filter(r => r.status === 'fulfilled').map(r => (r as PromiseFulfilledResult<{ engine: string; score: number; signal: string; reason: string; metadata: Record<string, unknown> }>).value);
-      const regimeResult = successfulAI.find(r => r.engine === 'marketRegime');
       const activityResult = successfulAI.find(r => r.engine === 'poolActivity');
       const accumulationResult = successfulAI.find(r => r.engine === 'accumulation');
       const whaleResult = successfulAI.find(r => r.engine === 'whaleExit');
       const smFlowResult = successfulAI.find(r => r.engine === 'smartMoneyFlow');
-      const candleResult = successfulAI.find(r => r.engine === 'candleIntelligence');
+      const aiCandleResult = successfulAI.find(r => r.engine === 'candleIntelligence');
       const psychResult = successfulAI.find(r => r.engine === 'marketPsychology');
       const selfLearnResult = successfulAI.find(r => r.engine === 'selfLearning');
-      const deployMemResult = successfulAI.find(r => r.engine === 'deploymentMemory');
+      const aiDeployMemResult = successfulAI.find(r => r.engine === 'deploymentMemory');
 
-      const regime = regimeResult?.metadata?.regime as string ?? 'RANGING';
       const dynamicWeights = await aiEngines.dynamicWeight.evaluate({ marketRegime: regime, confidence });
 
       const analystResult = await aiEngines.analyst.evaluate({
@@ -150,10 +186,10 @@ export class LPIntelligenceService {
       const chiefResult = await aiEngines.chiefAI.evaluate({
         analystResult: { overallScore: analystResult.score, confidence: (analystResult.metadata?.confidence as number), weightedScore: (analystResult.metadata?.weightedScore as number), consensusSignal: (analystResult.metadata?.consensusSignal as string) },
         agentResult: { score: agentResult.score, metadata: agentResult.metadata },
-        marketRegimeScore: regimeResult?.score ?? 50,
+        marketRegimeScore: deployMemResult?.score ?? 50,
         poolActivityScore: activityResult?.score ?? 50,
         whaleExitScore: whaleResult?.score ?? 100,
-        deploymentMemoryScore: deployMemResult?.score ?? 50,
+        deploymentMemoryScore: aiDeployMemResult?.score ?? 50,
         selfLearningScore: selfLearnResult?.score ?? 50,
       });
 
@@ -189,6 +225,7 @@ export class LPIntelligenceService {
         deploymentDecision: finalDecision,
         availableCapital: options?.availableCapital,
         riskScore: componentScores['risk'] ?? 50,
+        marketRegime: regime as any,
       });
 
       const decisionResult = await this.decisionEngine.evaluate({
@@ -235,12 +272,16 @@ export class LPIntelligenceService {
         aiAccumulationScore: accumulationResult?.score,
         aiWhaleExitProbability: whaleResult ? (100 - whaleResult.score) : undefined,
         aiSmartMoneyFlowScore: smFlowResult?.score,
-        aiCandlePattern: candleResult?.metadata?.pattern as string ?? 'NEUTRAL',
-        aiMarketPsychology: psychResult?.metadata?.psychology as string ?? 'NEUTRAL',
+        aiCandlePattern: aiCandleResult?.metadata?.pattern as string ?? trendState,
+        aiMarketPsychology: psychResult?.metadata?.psychology as string ?? psychology,
         aiOverallScore: analystResult.score,
         aiConfidence: (analystResult.metadata?.confidence as number) ?? 50,
         aiChiefRecommendation: chiefAction,
         aiChiefWarnings: aiWarnings,
+        candleIntelligenceScore: candleScore,
+        marketPsychologyScore: psychScore,
+        deploymentMemoryScore: deployMemResult.score,
+        candleTrend: trendState,
       };
     } catch (error) {
       this.logger.error(`Evaluation failed: ${error instanceof Error ? error.message : String(error)}`);
