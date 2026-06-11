@@ -175,15 +175,31 @@ export class MarketDataService {
             return 0;
           }
           const best = solPairs[0];
-          const totalTx5m = best.txCount?.m5 ?? 0;
-          const ratio5m = best.buySellRatio?.m5 ?? 1;
+          let totalTx5m = best.txCount?.m5 ?? 0;
+          let ratio5m = best.buySellRatio?.m5 ?? 1;
+          // Fallback: m5 can be 0 for low-traffic pairs — try h1, then h6
+          if (totalTx5m === 0 && (best.txCount?.h1 ?? 0) > 0) {
+            totalTx5m = Math.round((best.txCount.h1) / 12);
+            ratio5m = best.buySellRatio?.h1 ?? 1;
+            console.log(`  [txs] ${mint.slice(0, 8)}... m5=0 using h1/${12}=${totalTx5m} tx estimate`);
+          } else if (totalTx5m === 0 && (best.txCount?.h6 ?? 0) > 0) {
+            totalTx5m = Math.round((best.txCount.h6) / 72);
+            ratio5m = best.buySellRatio?.h6 ?? 1;
+            console.log(`  [txs] ${mint.slice(0, 8)}... m5&h1=0 using h6/${72}=${totalTx5m} tx estimate`);
+          }
           const buys5m = Math.round(totalTx5m * ratio5m / (1 + ratio5m));
           const sells5m = totalTx5m - buys5m;
           const price = Number(best.price?.usd ?? 0);
           const txData: TransactionData[] = [];
           let synthCounter = 0;
           const now = Date.now();
-          const totalVol5m = Number(best.volume?.m5 ?? 0);
+          let totalVol5m = Number(best.volume?.m5 ?? 0);
+          // Volume fallback: m5 can be 0 — try h1/12, then h6/72
+          if (totalVol5m === 0 && (best.volume?.h1 ?? 0) > 0) {
+            totalVol5m = Number(best.volume.h1) / 12;
+          } else if (totalVol5m === 0 && (best.volume?.h6 ?? 0) > 0) {
+            totalVol5m = Number(best.volume.h6) / 72;
+          }
           // Create synthetic buy records for 5m window
           const buyCount = Math.min(buys5m, 20);
           for (let i = 0; i < buyCount; i++) {

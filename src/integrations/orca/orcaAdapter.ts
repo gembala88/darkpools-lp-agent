@@ -29,7 +29,14 @@ export class OrcaAdapter extends BaseIntegration {
 
   async getWhirlpools(): Promise<OrcaWhirlpool[]> {
     const data = await this.apiFetch<OrcaWhirlpoolListResponse>('/v1/whirlpool/list');
-    return data?.whirlpools ?? [];
+    const pools = data?.whirlpools ?? [];
+    const totalBefore = pools.length;
+    // Limit to top 50 by daily volume to avoid overwhelming the pipeline
+    const limited = pools
+      .sort((a, b) => (b.volume?.day ?? 0) - (a.volume?.day ?? 0))
+      .slice(0, 50);
+    console.log(`[DISCOVERY] source=orca_whirlpools count=${limited.length}${totalBefore > 50 ? ` (limited from ${totalBefore})` : ''}`);
+    return limited;
   }
 
   async healthCheck(): Promise<boolean> {

@@ -6,8 +6,12 @@ export class HolderRepository extends BaseRepository<HolderData> {
   private holders: Map<string, HolderData> = new Map();
   private listCache = new Cache<HolderData[]>(30_000);
 
+  private normalizeMint(mint: string): string {
+    return mint.toLowerCase();
+  }
+
   async getByAddress(address: string, tokenMint: string): Promise<HolderData | null> {
-    const key = `holder:${tokenMint}:${address}`;
+    const key = `holder:${this.normalizeMint(tokenMint)}:${address}`;
     const cached = await this.getCached(key);
     if (cached) return cached;
     const holder = this.holders.get(key) ?? null;
@@ -16,22 +20,25 @@ export class HolderRepository extends BaseRepository<HolderData> {
   }
 
   async getByToken(tokenMint: string): Promise<HolderData[]> {
-    const key = `holders:${tokenMint}`;
+    const normalized = this.normalizeMint(tokenMint);
+    const key = `holders:${normalized}`;
     const cached = this.listCache.get(key);
     if (cached) return cached;
     const holders = Array.from(this.holders.values())
-      .filter(h => h.tokenMint === tokenMint);
+      .filter(h => h.tokenMint.toLowerCase() === normalized);
     this.listCache.set(key, holders, 30_000);
     return holders;
   }
 
   async upsert(holder: HolderData): Promise<HolderData> {
-    const key = `holder:${holder.tokenMint}:${holder.address}`;
+    const normalizedMint = this.normalizeMint(holder.tokenMint);
+    const key = `holder:${normalizedMint}:${holder.address}`;
+    const normalized = { ...holder, tokenMint: normalizedMint };
     const existing = this.holders.get(key);
-    const merged = existing ? this.reconcile(holder, existing) : holder;
+    const merged = existing ? this.reconcile(normalized, existing) : normalized;
     this.holders.set(key, merged);
     this.setCache(key, merged);
-    this.listCache.delete(`holders:${holder.tokenMint}`);
+    this.listCache.delete(`holders:${normalizedMint}`);
     return merged;
   }
 
