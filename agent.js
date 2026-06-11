@@ -233,7 +233,10 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
             attempt -= 1;
             continue;
           }
-          throw error;
+          // Connection/network errors — retry with backoff
+          log("agent", `Connection error, retrying in ${(attempt + 1) * 5000}ms (attempt ${attempt + 1}/3)`);
+          await new Promise((r) => setTimeout(r, (attempt + 1) * 5000));
+          continue;
         }
         if (response.choices?.length) break;
         const errCode = response.error?.code;
@@ -373,6 +376,14 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
       if (error.status === 429) {
         log("agent", "Rate limited, waiting 30s...");
         await sleep(30000);
+        continue;
+      }
+
+      // Connection/network errors — retry the step with backoff
+      if (error.message?.includes('fetch') || error.message?.includes('ECONNREFUSED') || error.message?.includes('ETIMEDOUT') || error.message?.includes('ENOTFOUND') || error.message?.includes('network') || error.message?.includes('API returned no choices')) {
+        log("agent", `Connection error at step ${step}, retrying step in 10s...`);
+        await sleep(10000);
+        step -= 1;
         continue;
       }
 

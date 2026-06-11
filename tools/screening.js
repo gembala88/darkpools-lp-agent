@@ -713,7 +713,7 @@ async function discoverAll() {
  */
 async function enrichCandidates(pools, s) {
   if (!Array.isArray(pools) || pools.length === 0) return { pools: [], filtered: [] };
-  const { integrations } = await import("../src/integrations/index.js");
+  const { integrations } = await import("../dist/integrations/index.js");
   const birdeye = integrations.birdeye;
   const jupiter = integrations.jupiter;
   const dexscreener = integrations.dexscreener;
