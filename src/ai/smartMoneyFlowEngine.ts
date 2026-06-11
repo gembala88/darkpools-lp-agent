@@ -40,23 +40,51 @@ export class SmartMoneyFlowEngine extends BaseEngine {
     const allTxCount = recentTxs.length;
     const smartMoneyShare = allTxCount > 0 ? smTotalTx / allTxCount : 0;
 
+    // Phase 93: Cross-reference with HawkFi smart LP data
+    let hawkfiEntries = 0;
+    let hawkfiExits = 0;
+    let hawkfiWalletCount = 0;
+    try {
+      const { integrations } = await import('../integrations/index.js');
+      const hawkfi = integrations.hawkfi;
+      const intel = await hawkfi.getPoolIntelligence(poolAddress);
+      if (intel) {
+        hawkfiEntries = intel.recentEntries;
+        hawkfiExits = intel.recentExits;
+        hawkfiWalletCount = intel.walletCount;
+      }
+    } catch { /* hawkfi unavailable */ }
+
     let score = 50;
     const signals: string[] = [];
 
+    // HawkFi signal: recent entries by smart LPs = bullish, exits = bearish
+    if (hawkfiEntries > hawkfiExits && hawkfiEntries >= 2) {
+      score += 15;
+      signals.push(`hawkfi: ${hawkfiEntries} smart LPs entered`);
+    } else if (hawkfiExits > hawkfiEntries && hawkfiExits >= 2) {
+      score -= 15;
+      signals.push(`hawkfi: ${hawkfiExits} smart LPs exited (DANGER)`);
+    }
+    if (hawkfiWalletCount >= 2) {
+      score += 10;
+      signals.push(`hawkfi: ${hawkfiWalletCount} smart LPs in pool`);
+    }
+
     if (smTxRatio > 0.7 && smVolRatio > 0.65 && uniqueSmartMoneyBuyers > 3) {
-      score = 90;
+      score = Math.max(score, 90);
       signals.push('strong smart money inflow across multiple wallets');
     } else if (smTxRatio > 0.6 && smVolRatio > 0.55) {
-      score = 75;
+      score = Math.max(score, 75);
       signals.push('moderate smart money inflow');
     } else if (smTxRatio > 0.55 && netSmartMoneyFlow > 0) {
-      score = 65;
+      score = Math.max(score, 65);
       signals.push('slight smart money inflow');
     } else if (smTxRatio < 0.35 && smVolRatio < 0.4) {
-      score = 25;
+      score = Math.min(score, 25);
       signals.push('smart money distributing');
     } else if (smTxRatio < 0.45 && netSmartMoneyFlow < 0) {
-      score = 35;
+      score = Math.min(score, 35);
       signals.push('slight smart money outflow');
     }
 
@@ -80,6 +108,9 @@ export class SmartMoneyFlowEngine extends BaseEngine {
         uniqueBuyers: uniqueSmartMoneyBuyers,
         uniqueSellers: uniqueSmartMoneySellers,
         smartMoneyShare: Number(smartMoneyShare.toFixed(2)),
+        hawkfiEntries,
+        hawkfiExits,
+        hawkfiWalletCount,
       },
     };
   }

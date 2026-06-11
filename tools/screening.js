@@ -797,8 +797,42 @@ async function discoverFromOrca() {
 }
 
 /**
+ * Discover trending pools from HawkFi smart LP data.
+ */
+async function discoverFromHawkFi() {
+  try {
+    const { HawkFiAdapter } = await import("../dist/integrations/hawkfi/hawkfiAdapter.js");
+    const hawkfi = new HawkFiAdapter();
+    const pools = await hawkfi.getTrendingPools();
+    log("discovery", `source=hawkfi count=${pools.length}`);
+    return { pools: pools.map(p => ({
+      pool: p.poolAddress,
+      name: p.name,
+      base: { symbol: null, mint: p.baseMint, organic: null, warnings: 0 },
+      quote: { symbol: "SOL", mint: p.quoteMint },
+      pool_type: null,
+      bin_step: null,
+      fee_pct: null,
+      tvl: p.tvl,
+      active_tvl: p.tvl,
+      volume_window: p.volume24h,
+      fee_active_tvl_ratio: null,
+      volatility: null,
+      holders: null,
+      mcap: null,
+      price: null,
+      dex_source: 'hawkfi',
+      hawkfi_smart_wallets: p.smartWalletCount,
+    })), source: "hawkfi" };
+  } catch (err) {
+    log("discovery", `source=hawkfi error=${err.message}`);
+    return { pools: [], source: "hawkfi" };
+  }
+}
+
+/**
  * Run all discovery sources in parallel, merge by mint, deduplicate.
- * Priority order for duplicate mints: meteora > gmgn > dexscreener_trending > dexscreener_boosted > raydium > orca
+ * Priority order for duplicate mints: meteora > gmgn > dexscreener_trending > dexscreener_boosted > raydium > orca > hawkfi
  */
 async function discoverAll() {
   const sources = await Promise.allSettled([
@@ -808,6 +842,7 @@ async function discoverAll() {
     discoverFromDexScreenerBoosted(),
     discoverFromRaydium(),
     discoverFromOrca(),
+    discoverFromHawkFi(),
   ]);
 
   const allPools = [];

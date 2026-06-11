@@ -1814,6 +1814,21 @@ async function telegramHandler(msg) {
           }
         }
       } catch { /* analytics unavailable */ }
+
+      // HawkFi Intelligence (Phase 93)
+      try {
+        const { integrations } = await import("./dist/integrations/index.js");
+        const intel = await integrations.hawkfi.getPoolIntelligence(pos.pool).catch(() => null);
+        if (intel) {
+          lines.push("");
+          lines.push("🦅 HawkFi Intelligence");
+          lines.push(`- Smart LPs in pool: ${intel.walletCount}`);
+          lines.push(`- Recent entries: ${intel.recentEntries}`);
+          lines.push(`- Recent exits: ${intel.recentExits}`);
+          if (intel.score != null) lines.push(`- HawkFi pool score: ${intel.score}/100`);
+        }
+      } catch { /* hawkfi unavailable */ }
+
       await sendMessage(lines.filter(Boolean).join("\n"));
     } catch (e) {
       await sendMessage(`Error: ${e.message}`).catch(() => {});
