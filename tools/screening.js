@@ -153,15 +153,11 @@ function getRawPoolScreeningRejectReason(pool, s) {
  */
 async function findMeteoraDlmmPool(mint) {
   try {
-    const url = `${POOL_DISCOVERY_BASE}/pools?` +
-      `page_size=1` +
-      `&filter_by=${encodeURIComponent(`base_token_mint=${mint}`)}` +
-      `&timeframe=5m` +
-      `&category=trending`;
+    const url = `https://dlmm-api.meteora.ag/pair/all_with_pagination?token=${mint}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return null;
     const data = await res.json();
-    const pools = data?.pools ?? data?.data ?? [];
+    const pools = data?.pairs ?? [];
     return pools.length > 0 ? pools[0] : null;
   } catch {
     return null;

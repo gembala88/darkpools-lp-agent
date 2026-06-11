@@ -251,7 +251,10 @@ Respond in JSON only: {"approved": true/false, "additional": ["suggestion1", "su
         max_tokens: 500,
       });
       const text = response.choices?.[0]?.message?.content?.trim() ?? '{}';
-      const parsed = JSON.parse(text.replace(/^```json\s*/i, '').replace(/```\s*$/, ''));
+      const clean = text.replace(/```json|```/gi, '').trim();
+      const jsonMatch = clean.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON object found in AI response');
+      const parsed = JSON.parse(jsonMatch[0]);
       return { additional: Array.isArray(parsed?.additional) ? parsed.additional : [] };
     } catch (err) {
       this.logger.warn(`AI validation failed: ${err instanceof Error ? err.message : String(err)}`);
