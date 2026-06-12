@@ -235,7 +235,7 @@ export async function runManagementCycle({ silent = false } = {}) {
 
   try {
     if (!silent && telegramEnabled()) {
-      liveMessage = await createLiveMessage("🔄 Management Cycle", "Evaluating positions...");
+      liveMessage = await createLiveMessage("🔄 Management Cycle", "Evaluating positions...", config.llm.maxSteps);
     }
     const livePositions = await getMyPositions({ force: true }).catch(() => null);
     positions = livePositions?.positions || [];
@@ -366,7 +366,7 @@ RULES:
 Execute the required actions. Do NOT re-evaluate CLOSE/CLAIM — rules already applied. Just execute.
 After executing, write a brief one-line result per position.
       `, config.llm.maxSteps, [], "MANAGER", config.llm.managementModel, 2048, {
-        onToolStart: async ({ name }) => { await liveMessage?.toolStart(name); },
+        onToolStart: async ({ name, step }) => { await liveMessage?.toolStart(name, { currentStep: (step ?? 0) + 1, totalSteps: config.llm.maxSteps }); },
         onToolFinish: async ({ name, result, success }) => { await liveMessage?.toolFinish(name, result, success); },
       });
 
@@ -451,7 +451,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
     return screenReport;
   }
   if (!silent && telegramEnabled()) {
-    liveMessage = await createLiveMessage("🔍 Screening Cycle", "Scanning candidates...");
+    liveMessage = await createLiveMessage("🔍 Screening Cycle", "Scanning candidates...", config.llm.maxSteps);
   }
   timers.screeningLastRun = Date.now();
   log("cron", `Starting screening cycle [model: ${config.llm.screeningModel}]`);
@@ -894,9 +894,9 @@ STEPS:
 IMPORTANT:
 - Keep the whole report compact and highly scannable for Telegram.
       `, config.llm.maxSteps, [], "SCREENER", config.llm.screeningModel, 2048, {
-        onToolStart: async ({ name }) => {
+        onToolStart: async ({ name, step }) => {
           if (name === "deploy_position") deployAttempted = true;
-          await liveMessage?.toolStart(name);
+          await liveMessage?.toolStart(name, { currentStep: (step ?? 0) + 1, totalSteps: config.llm.maxSteps });
         },
         onToolFinish: async ({ name, result, success, args }) => {
           if (name === "deploy_position") {
@@ -2503,10 +2503,10 @@ async function telegramHandler(msg) {
     const isDeployRequest = !hasCloseIntent && /\bdeploy\b|\bopen position\b|\blp into\b|\badd liquidity\b/i.test(text);
     const agentRole = isDeployRequest ? "SCREENER" : "GENERAL";
     const agentModel = agentRole === "SCREENER" ? config.llm.screeningModel : config.llm.generalModel;
-    liveMessage = await createLiveMessage("🤖 Live Update", `Request: ${text.slice(0, 240)}`);
+    liveMessage = await createLiveMessage("🤖 Live Update", `Request: ${text.slice(0, 240)}`, config.llm.maxSteps);
     const { content } = await agentLoop(text, config.llm.maxSteps, sessionHistory, agentRole, agentModel, null, {
       interactive: true,
-      onToolStart: async ({ name }) => { await liveMessage?.toolStart(name); },
+      onToolStart: async ({ name, step }) => { await liveMessage?.toolStart(name, { currentStep: (step ?? 0) + 1, totalSteps: config.llm.maxSteps }); },
       onToolFinish: async ({ name, result, success }) => { await liveMessage?.toolFinish(name, result, success); },
     });
     appendHistory(text, content);

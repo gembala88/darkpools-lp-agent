@@ -411,7 +411,7 @@ function summarizeToolResult(name, result) {
   }
 }
 
-export async function createLiveMessage(title, intro = "Starting...") {
+export async function createLiveMessage(title, intro = "Starting...", totalSteps = 0) {
   if (!TOKEN || !chatId) return null;
   const typing = createTypingIndicator();
 
@@ -425,11 +425,27 @@ export async function createLiveMessage(title, intro = "Starting...") {
     flushPromise: null,
     flushRequested: false,
     lastText: null,
+    currentStep: 0,
+    totalSteps,
+    lastAction: null, // { label, status: "running" | "done" | "error" }
   };
 
   function render() {
     const sections = [state.title];
-    if (state.intro) sections.push(state.intro);
+
+    // Step progress line
+    if (state.totalSteps > 0 && state.currentStep > 0) {
+      sections.push(`Step ${state.currentStep}/${state.totalSteps}`);
+    }
+
+    // Last action line
+    if (state.lastAction) {
+      const icon = state.lastAction.status === "running" ? "ℹ️" :
+                   state.lastAction.status === "done" ? "✅" :
+                   state.lastAction.status === "error" ? "❌" : "ℹ️";
+      sections.push(`Last action: ${icon} ${state.lastAction.label}`);
+    }
+
     if (state.toolLines.length > 0) sections.push(state.toolLines.join("\n"));
     if (state.footer) sections.push(state.footer);
     return sections.join("\n\n").slice(0, 4096);
@@ -439,18 +455,47 @@ export async function createLiveMessage(title, intro = "Starting...") {
     state.flushTimer = null;
     state.flushRequested = false;
     const text = render();
+
     if (!state.messageId) {
+      // First send — go to DM + channel, store channel mapping for edit mirroring
       const sent = await sendMessage(text);
       state.messageId = sent?.result?.message_id ?? null;
+      if (state.messageId) {
+        const channelId = resolveChannelId();
+        if (channelId && channelId !== chatId) {
+          const chResult = await sendToChat(channelId, "sendMessage", { text });
+          _channelMsgMap.set(state.messageId, chResult?.result?.message_id ?? null);
+        } else {
+          _channelMsgMap.set(state.messageId, null);
+        }
+      }
       state.lastText = text;
       return;
     }
+
     if (text === state.lastText) return;
     state.lastText = text;
-    await editMessage(text, state.messageId);
+    const result = await editMessage(text, state.messageId);
+    // Fallback: if edit fails (message too old / deleted), send fresh
+    if (!result) {
+      const sent = await sendMessage(text);
+      const prevId = state.messageId;
+      state.messageId = sent?.result?.message_id ?? null;
+      if (state.messageId) {
+        const channelId = resolveChannelId();
+        if (channelId && channelId !== chatId) {
+          const chResult = await sendToChat(channelId, "sendMessage", { text });
+          _channelMsgMap.set(state.messageId, chResult?.result?.message_id ?? null);
+        } else {
+          _channelMsgMap.set(state.messageId, null);
+        }
+        // Clean up old mapping
+        _channelMsgMap.delete(prevId);
+      }
+    }
   }
 
-  function scheduleFlush(delay = 300) {
+  function scheduleFlush(delay = 2000) {
     if (state.flushTimer) {
       state.flushRequested = true;
       return;
@@ -473,16 +518,27 @@ export async function createLiveMessage(title, intro = "Starting...") {
   await flushNow();
 
   return {
-    async toolStart(name) {
+    async toolStart(name, stepInfo) {
+      if (stepInfo?.currentStep != null) {
+        state.currentStep = stepInfo.currentStep;
+        if (stepInfo?.totalSteps) state.totalSteps = stepInfo.totalSteps;
+      }
+      state.lastAction = { label: toolLabel(name), status: "running" };
       await upsertToolLine(name, "ℹ️", "...");
     },
     async toolFinish(name, result, success) {
+      state.lastAction = { label: toolLabel(name), status: success ? "done" : "error" };
       const icon = success ? "✅" : "❌";
       const summary = summarizeToolResult(name, result);
       await upsertToolLine(name, icon, summary ? `— ${summary}` : "");
     },
+    async setStep(currentStep, total) {
+      state.currentStep = currentStep;
+      if (total) state.totalSteps = total;
+      scheduleFlush();
+    },
     async note(text) {
-      state.intro = text;
+      state.lastAction = null;
       scheduleFlush();
     },
     async finalize(finalText) {
@@ -491,6 +547,8 @@ export async function createLiveMessage(title, intro = "Starting...") {
         state.flushTimer = null;
       }
       if (state.flushPromise) await state.flushPromise;
+      state.lastAction = null;
+      state.toolLines = [];
       state.footer = finalText;
       await flushNow();
       _liveMessageDepth = Math.max(0, _liveMessageDepth - 1);
@@ -502,6 +560,8 @@ export async function createLiveMessage(title, intro = "Starting...") {
         state.flushTimer = null;
       }
       if (state.flushPromise) await state.flushPromise;
+      state.lastAction = null;
+      state.toolLines = [];
       state.footer = `❌ ${errorText}`;
       await flushNow();
       _liveMessageDepth = Math.max(0, _liveMessageDepth - 1);
