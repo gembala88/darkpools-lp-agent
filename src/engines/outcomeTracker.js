@@ -5,39 +5,59 @@ import { log } from '../../logger.js';
 const MEMORY_FILE = () => repoPath('data', 'deployment-memory.json');
 
 /**
- * Re-fetch a pool's current state from the Meteora discovery API.
- * Returns { tvl, price, volume, feePct, fee_active_tvl_ratio } or null on failure.
+ * Re-fetch a pool's current state from the Meteora discovery API (same live
+ * source the screening cycle uses successfully each cycle).
+ * Returns { tvl, price, volume24h, feePct } or null on failure.
  */
 async function fetchPoolCurrentState(poolAddress) {
+  // Primary: pool-discovery-api.datapi.meteora.ag (same endpoint as screening's fetchPoolDiscoveryDetail)
   try {
-    const { getPoolDetail } = await import('../../tools/screening.js');
-    const detail = await getPoolDetail({ pool_address: poolAddress, timeframe: '5m' });
-    if (!detail) return null;
-    return {
-      tvl: detail.active_tvl ?? detail.tvl ?? null,
-      price: detail.pool_price ?? null,
-      volume24h: detail.volume_window ?? null,
-      feePct: detail.fee_pct ?? null,
-      fee_active_tvl_ratio: detail.fee_active_tvl_ratio ?? null,
-    };
-  } catch {
-    try {
-      // Fallback: direct fetch from dlmm-api (individual pool endpoint)
-      const res = await fetch(`https://dlmm-api.meteora.ag/pool/${poolAddress}`);
-      if (!res.ok) return null;
-      const data = await res.json();
-      if (!data) return null;
-      return {
-        tvl: data.active_tvl ?? data.tvl ?? null,
-        price: data.pool_price ?? null,
-        volume24h: data.volume ?? null,
-        feePct: data.fee_pct ?? null,
-        fee_active_tvl_ratio: data.fee_active_tvl_ratio ?? null,
-      };
-    } catch {
-      return null;
+    const base = 'https://pool-discovery-api.datapi.meteora.ag';
+    const url = `${base}/pools?page_size=1&filter_by=${encodeURIComponent('pool_address=' + poolAddress)}&timeframe=5m`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (res.ok) {
+      const body = await res.json();
+      const pool = (body.data || [])[0];
+      if (pool) {
+        const state = {
+          tvl: pool.active_tvl ?? pool.tvl ?? null,
+          price: pool.pool_price ?? null,
+          volume24h: pool.volume ?? null,
+          feePct: pool.fee_pct ?? null,
+        };
+        log("deploy", `[OUTCOME] fetchPoolState ${poolAddress.slice(0, 8)} → tvl=${state.tvl} price=${state.price}`);
+        return state;
+      }
     }
+    log("deploy", `[OUTCOME] fetchPoolState ${poolAddress.slice(0, 8)} → discovery returned no pool`);
+  } catch (e) {
+    log("deploy", `[OUTCOME] fetchPoolState ${poolAddress.slice(0, 8)} discovery error: ${e.message}`);
   }
+
+  // Fallback: DexScreener by pool address
+  try {
+    const url = `https://api.dexscreener.com/latest/dex/search?q=${poolAddress}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (res.ok) {
+      const body = await res.json();
+      const pair = (body.pairs || []).find(p => p.pairAddress === poolAddress || p.pairAddress?.toLowerCase() === poolAddress.toLowerCase());
+      if (pair) {
+        const state = {
+          tvl: pair.liquidity?.usd ?? null,
+          price: pair.priceUsd ? Number(pair.priceUsd) : null,
+          volume24h: pair.volume?.h24 ?? null,
+          feePct: null,
+        };
+        log("deploy", `[OUTCOME] fetchPoolState ${poolAddress.slice(0, 8)} → dexscreener tvl=${state.tvl} price=${state.price}`);
+        return state;
+      }
+    }
+  } catch (e) {
+    log("deploy", `[OUTCOME] fetchPoolState ${poolAddress.slice(0, 8)} dexscreener error: ${e.message}`);
+  }
+
+  log("deploy", `[OUTCOME] fetchPoolState ${poolAddress.slice(0, 8)} → FAILED (both sources exhausted)`);
+  return null;
 }
 
 /**
