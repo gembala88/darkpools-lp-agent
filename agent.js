@@ -260,8 +260,8 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
       }
 
       if (!response?.choices?.length) {
-        log("error", `Bad API response: ${JSON.stringify(response).slice(0, 200)}`);
-        throw new Error(`API returned no choices: ${response.error?.message || JSON.stringify(response)}`);
+        log("error", `Bad API response: ${(response ? JSON.stringify(response) : 'undefined').slice(0, 200)}`);
+        throw new Error(`API returned no choices: ${response?.error?.message || (response ? JSON.stringify(response) : 'undefined response')}`);
       }
       const msg = response.choices[0].message;
       // Repair malformed tool call JSON before pushing to history —

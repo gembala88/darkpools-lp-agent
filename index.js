@@ -734,6 +734,54 @@ export async function runScreeningCycle({ silent = false } = {}) {
     let _lastDeployPool = null;
     const laneLabel = _resolvedLane.charAt(0).toUpperCase() + _resolvedLane.slice(1);
     const laneLine = `Active lane: ${laneLabel} (minLpAlphaScore=${effectiveMinAlpha}, maxPositions=${config.risk.maxPositions})`;
+
+    // ── DRY RUN: promote top WATCHLIST pool to simulated deploy for learning ──
+    // Run here (after evaluation, before LLM loop) so it executes even if the LLM crashes
+    if (isDryRun && passing.length > 0) {
+      let bestEntry = null;
+      let bestScore = -1;
+      for (const entry of passing) {
+        const ai = aiMap[entry.pool.pool];
+        if (ai && ai.deploymentDecision === 'WATCHLIST' && ai.lpAlphaScore >= 25 && ai.lpAlphaScore > bestScore) {
+          bestScore = ai.lpAlphaScore;
+          bestEntry = entry;
+        }
+      }
+      if (bestEntry) {
+        const pool = bestEntry.pool;
+        log("deploy", `[DRY_RUN] Promoting top WATCHLIST pool ${pool.name} (score=${bestScore.toFixed(2)}) to simulated DEPLOY`);
+        sendToChannel(`🧪 DRY RUN: Promoting WATCHLIST → DEPLOY for ${pool.name} (score=${bestScore.toFixed(2)})`, "info").catch(() => {});
+        try {
+          const deployAmount = computeDeployAmount(effectiveBalance.sol);
+          const binsBelow = computeBinsBelow(pool.volatility);
+          const result = await executeTool("deploy_position", {
+            pool_address: pool.pool,
+            amount_y: deployAmount,
+            strategy: config.strategy.strategy,
+            bins_below: binsBelow,
+            bins_above: 0,
+            pool_name: pool.name,
+            base_mint: pool.base?.mint || pool.base_mint || null,
+            bin_step: pool.bin_step,
+            base_fee: pool.base_fee,
+            volatility: pool.volatility,
+            fee_tvl_ratio: pool.fee_active_tvl_ratio ?? pool.fee_tvl_ratio,
+            organic_score: pool.organic_score,
+            initial_value_usd: pool.tvl ?? pool.active_tvl ?? null,
+          });
+          if (result?.success !== false && !result?.error && !result?.blocked) {
+            deploySucceeded = true;
+            _lastDeployPool = result?.pool_name || result?.would_deploy?.pool_address || pool.name || pool.pool;
+            _lastDecision = { decision: "DRY_RUN_DEPLOY", pool: _lastDeployPool, reason: "Simulated deploy (DRY RUN)", time: new Date().toISOString(), lane: _resolvedLane };
+            appendDecision({ type: "deploy", actor: "SCREENER", summary: `DRY RUN auto-promoted ${pool.name}`, pool: pool.pool });
+            log("deploy", `[DRY_RUN] Auto-promote succeeded: ${_lastDeployPool}`);
+          }
+        } catch (e) {
+          log("deploy", `[DRY_RUN] Auto-promote deploy failed: ${e.message}`);
+        }
+      }
+    }
+
     const { content } = await agentLoop(`
 SCREENING CYCLE
 ${strategyBlock}
@@ -848,51 +896,6 @@ IMPORTANT:
       }
     }
 
-    // ── DRY RUN: promote top WATCHLIST pool to simulated deploy for learning ──
-    if (isDryRun && !deploySucceeded && passing.length > 0) {
-      let bestEntry = null;
-      let bestScore = -1;
-      for (const entry of passing) {
-        const ai = aiMap[entry.pool.pool];
-        if (ai && ai.deploymentDecision === 'WATCHLIST' && ai.lpAlphaScore >= 25 && ai.lpAlphaScore > bestScore) {
-          bestScore = ai.lpAlphaScore;
-          bestEntry = entry;
-        }
-      }
-      if (bestEntry) {
-        const pool = bestEntry.pool;
-        log("deploy", `[DRY_RUN] Promoting top WATCHLIST pool ${pool.name} (score=${bestScore.toFixed(2)}) to simulated DEPLOY`);
-        sendToChannel(`🧪 DRY RUN: Promoting WATCHLIST → DEPLOY for ${pool.name} (score=${bestScore.toFixed(2)})`, "info").catch(() => {});
-        try {
-          const deployAmount = computeDeployAmount(effectiveBalance.sol);
-          const binsBelow = computeBinsBelow(pool.volatility);
-          const result = await executeTool("deploy_position", {
-            pool_address: pool.pool,
-            amount_y: deployAmount,
-            strategy: config.strategy.strategy,
-            bins_below: binsBelow,
-            bins_above: 0,
-            pool_name: pool.name,
-            base_mint: pool.base?.mint || pool.base_mint || null,
-            bin_step: pool.bin_step,
-            base_fee: pool.base_fee,
-            volatility: pool.volatility,
-            fee_tvl_ratio: pool.fee_active_tvl_ratio ?? pool.fee_tvl_ratio,
-            organic_score: pool.organic_score,
-            initial_value_usd: pool.tvl ?? pool.active_tvl ?? null,
-          });
-          if (result?.success !== false && !result?.error && !result?.blocked) {
-            deploySucceeded = true;
-            _lastDeployPool = result?.pool_name || result?.would_deploy?.pool_address || pool.name || pool.pool;
-            _lastDecision = { decision: "DRY_RUN_DEPLOY", pool: _lastDeployPool, reason: "Simulated deploy (DRY RUN)", time: new Date().toISOString(), lane: _resolvedLane };
-            appendDecision({ type: "deploy", actor: "SCREENER", summary: `DRY RUN auto-promoted ${pool.name}`, pool: pool.pool });
-            log("deploy", `[DRY_RUN] Auto-promote succeeded: ${_lastDeployPool}`);
-          }
-        } catch (e) {
-          log("deploy", `[DRY_RUN] Auto-promote deploy failed: ${e.message}`);
-        }
-      }
-    }
   } catch (error) {
     log("cron_error", `Screening cycle failed: ${error.message}`);
     screenReport = `Screening cycle failed: ${error.message}`;

@@ -134,15 +134,22 @@ async function validateDeployPoolThresholds(args) {
 
   const feeActiveTvlRatio = poolDetailFeeActiveTvlRatio(detail);
   const minFeeActiveTvlRatio = numberOrNull(config.screening.minFeeActiveTvlRatio);
+  const isDryRun = process.env.DRY_RUN === "true";
+  const effectiveMinFeeActiveTvlRatio = isDryRun && minFeeActiveTvlRatio != null
+    ? Math.min(minFeeActiveTvlRatio, 0.01)
+    : minFeeActiveTvlRatio;
   if (
-    minFeeActiveTvlRatio != null &&
-    minFeeActiveTvlRatio > 0 &&
-    (feeActiveTvlRatio == null || feeActiveTvlRatio < minFeeActiveTvlRatio)
+    effectiveMinFeeActiveTvlRatio != null &&
+    effectiveMinFeeActiveTvlRatio > 0 &&
+    (feeActiveTvlRatio == null || feeActiveTvlRatio < effectiveMinFeeActiveTvlRatio)
   ) {
     return {
       pass: false,
-      reason: `Pool fee/active-TVL ${feeActiveTvlRatio ?? "unknown"}% is below configured minFeeActiveTvlRatio ${minFeeActiveTvlRatio}%.`,
+      reason: `Pool fee/active-TVL ${feeActiveTvlRatio ?? "unknown"}% is below ${isDryRun ? "dry run relaxed" : "configured"} minFeeActiveTvlRatio ${effectiveMinFeeActiveTvlRatio}%.`,
     };
+  }
+  if (isDryRun && feeActiveTvlRatio != null && feeActiveTvlRatio < (minFeeActiveTvlRatio ?? 0.05)) {
+    log("deploy", `[DRY_RUN] fee/TVL gate relaxed to ${effectiveMinFeeActiveTvlRatio}% for learning (pool has ${feeActiveTvlRatio}%)`);
   }
 
   const volatilityTimeframe = getVolatilityTimeframe(config.screening.timeframe || "5m");
