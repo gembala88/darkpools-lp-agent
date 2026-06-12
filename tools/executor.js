@@ -684,6 +684,7 @@ export async function executeTool(name, args) {
                 volatility: args.volatility,
                 timestamp: new Date().toISOString(),
                 dry_run: true,
+                deploySource: args.deploy_source || "ai_chosen",
               };
               const deployRecord = {
                 ...baseRecord,

@@ -219,6 +219,14 @@ export async function runManagementCycle({ silent = false } = {}) {
   _managementBusy = true;
   timers.managementLastRun = Date.now();
   log("cron", "Starting management cycle");
+
+  // Outcome tracking — check PENDING deploys for 1h/4h completion
+  try {
+    const { checkOutcomes } = await import('./src/engines/outcomeTracker.js');
+    await checkOutcomes();
+  } catch (e) {
+    log("cron_error", `Outcome tracker failed: ${e.message}`);
+  }
   let mgmtReport = null;
   let positions = [];
   let liveMessage = null;
@@ -766,8 +774,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
         try {
           const deployAmount = computeDeployAmount(effectiveBalance.sol);
           const binsBelow = computeBinsBelow(pool.volatility);
-          console.log('[DRY_RUN] deploy args:', JSON.stringify({lane: _resolvedLane, regime: _latestRegime, psychology: _latestPsychology, lp_alpha_score: aiMap[pool.pool]?.lpAlphaScore}));
-          const result = await executeTool("deploy_position", {
+          const deployArgs = {
             pool_address: pool.pool,
             amount_y: deployAmount,
             strategy: config.strategy.strategy,
@@ -785,7 +792,10 @@ export async function runScreeningCycle({ silent = false } = {}) {
             regime: _latestRegime,
             psychology: _latestPsychology,
             lp_alpha_score: aiMap[pool.pool]?.lpAlphaScore ?? null,
-          });
+            deploy_source: "auto_promoted",
+          };
+          log("deploy", `[DRY_RUN] deploy args: ${JSON.stringify({lane: deployArgs.lane, regime: deployArgs.regime, psychology: deployArgs.psychology, lp_alpha_score: deployArgs.lp_alpha_score, source: deployArgs.deploy_source})}`);
+          const result = await executeTool("deploy_position", deployArgs);
           if (result?.success !== false && !result?.error && !result?.blocked) {
             deploySucceeded = true;
             _lastDeployPool = result?.pool_name || result?.would_deploy?.pool_address || pool.name || pool.pool;
@@ -1210,7 +1220,7 @@ const READ_ONLY_COMMANDS = [
   "/mode", "/filters", "/agent", "/wallet", "/status",
   "/positions", "/help", "/config", "/candidates",
   "/hive", "/channel", "/pool", "/briefing", "/screen",
-  "/setmodel", "/setrpc", "/lane"
+  "/setmodel", "/setrpc", "/lane", "/learnings"
 ];
 
 const _telegramQueue = []; // queued messages received while agent was busy
@@ -2157,6 +2167,38 @@ async function telegramHandler(msg) {
 
   if (text === "/candidates") {
     await sendMessage(describeLatestCandidates(5)).catch(() => {});
+    return;
+  }
+
+  if (text === "/learnings") {
+    try {
+      const { analyzeDeploymentMemory } = await import('./src/engines/learningsAnalyzer.js');
+      const result = analyzeDeploymentMemory();
+      if (result.error) {
+        await sendMessage(`🧠 Learnings: ${result.error}`).catch(() => {});
+        return;
+      }
+      const lines = ["🧠 LEARNINGS (SIMULATED — dry run)"];
+      for (const [source, s] of Object.entries(result)) {
+        lines.push("");
+        const label = source === "auto_promoted" ? "⚙️ AUTO-PROMOTED" : "🤖 AI-CHOSEN";
+        const note = source === "auto_promoted" ? " (forced, for memory only — NOT a live signal)" : " (the real signal)";
+        lines.push(`${label}${note}:`);
+        if (s.collecting) {
+          lines.push(`  Collecting data (${s.completed}/3 completed)…`);
+        } else {
+          lines.push(`  Deploys: ${s.totalDeploys} | Completed: ${s.completed} | Win rate: ${s.winRate}%`);
+          lines.push(`  Avg fees: $${s.avgFeesEarned ?? '?'} (sim) | Avg TVL Δ: ${s.avgTvlChange ?? '?'}%`);
+          lines.push(`  Best: ${s.bestLaneRegime ?? '—'}`);
+          lines.push(`  Worst: ${s.worstLaneRegime ?? '—'}`);
+        }
+      }
+      lines.push("");
+      lines.push("⚠️ Win rate is SIMULATED, not real money. Auto-promoted deploys bypass safety gates.");
+      await sendMessage(lines.join("\n")).catch(() => {});
+    } catch (e) {
+      await sendMessage(`Error loading learnings: ${e.message}`).catch(() => {});
+    }
     return;
   }
 
