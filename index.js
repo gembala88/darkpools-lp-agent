@@ -492,7 +492,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
     if (laneCfg.maxPositions != null) config.risk.maxPositions = laneCfg.maxPositions;
     if (laneCfg.deployAmountSol != null) config.management.deployAmountSol = laneCfg.deployAmountSol;
     log("cron", `[SCREENING] Using lane '${_resolvedLane}' thresholds: maxTop10Pct=${config.screening.maxTop10Pct}, maxBotHoldersPct=${config.screening.maxBotHoldersPct}, minTvl=${config.screening.minTvl}, minTokenFeesSol=${config.screening.minTokenFeesSol}, minHolders=${config.screening.minHolders}`);
-    const dryRunAlphaOverride = isDryRun ? 30 : null;
+    const dryRunAlphaOverride = isDryRun ? 25 : null;
     const effectiveMinAlpha = dryRunAlphaOverride !== null ? dryRunAlphaOverride : (laneCfg.minLpAlphaScore ?? 70);
     log("cron", `Lane "${_resolvedLane}" active: minAlpha=${effectiveMinAlpha}, maxPos=${config.risk.maxPositions}, deployAmt=${config.management.deployAmountSol}`);
 

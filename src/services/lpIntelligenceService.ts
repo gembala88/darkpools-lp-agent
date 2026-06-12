@@ -270,13 +270,18 @@ export class LPIntelligenceService {
         regime,
       );
 
-      // Compute buySellScore from real transaction data with neutral fallback
-      const { buys: recentBuys, sells: recentSells } = repositories.transaction.getBuySellCount(poolAddress, 5);
-      const recentTotal = recentBuys + recentSells;
-      const rawBuySellRatio = recentSells > 0 ? recentBuys / recentSells : (recentBuys > 0 ? 99 : 0);
-      const hasTxData = recentTotal > 0;
-      const buySellScore = hasTxData ? Math.min(rawBuySellRatio * 50, 100) : 50;
-      this.logger.info(`[DECISION-DEBUG] ${options?.tokenName || poolAddress.slice(0, 8)} buys=${recentBuys} sells=${recentSells} buySellRatio=${hasTxData ? rawBuySellRatio.toFixed(2) : 'N/A (neutral)'}`);
+      // Compute LP activity from 1h window (stable), fall back to 5min
+      const { buys: buys1h, sells: sells1h } = repositories.transaction.getBuySellCount(poolAddress, 60);
+      const { buys: buys5m, sells: sells5m } = repositories.transaction.getBuySellCount(poolAddress, 5);
+      const txActivity1h = buys1h + sells1h;
+      const txActivity5m = buys5m + sells5m;
+      const hasTxData1h = txActivity1h > 0;
+      const hasTxData5m = txActivity5m > 0;
+      const total1h = txActivity1h;
+      const sellPct1h = total1h > 0 ? (sells1h / total1h) * 100 : 0;
+      const rawBuySellRatio = sells1h > 0 ? buys1h / sells1h : (buys1h > 0 ? 99 : 0);
+      const buySellScore = hasTxData1h ? Math.min(rawBuySellRatio * 50, 100) : (hasTxData5m ? 50 : 50);
+      this.logger.info(`[DECISION-DEBUG] ${options?.tokenName || poolAddress.slice(0, 8)} txActivity=${total1h} (1h) 5m=${txActivity5m} buys=${buys1h} sells=${sells1h} sellPct=${sellPct1h.toFixed(1)}% feeScore=${buySellScore.toFixed(1)}`);
 
       // Override concentration risk with enrichment top10Pct when available
       const effectiveConcentrationRisk = (options?.top10Pct != null && options.top10Pct > 0)
@@ -302,6 +307,9 @@ export class LPIntelligenceService {
         bundlerRisk: bundlerRisk as any,
         concentrationRisk: effectiveConcentrationRisk,
         isDryRun: options?.isDryRun,
+        txActivity1h,
+        txActivity5m,
+        sellPct1h,
       };
 
       const laneOverride = options?.laneOverride;

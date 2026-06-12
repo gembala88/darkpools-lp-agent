@@ -21,6 +21,12 @@ export interface FilterCriteria {
   concentrationRisk?: number;
   /** When true, relax certain thresholds (e.g. concentration) for DRY RUN learning */
   isDryRun?: boolean;
+  /** Total buys+sells in last 60min (preferred stable window for LP activity) */
+  txActivity1h?: number;
+  /** Total buys+sells in last 5min (fallback) */
+  txActivity5m?: number;
+  /** Percentage of transactions that are sells over 1h (for extreme dump detection) */
+  sellPct1h?: number;
 }
 
 export interface FilterResult {
@@ -34,7 +40,6 @@ export class NoDeployFilterV2 {
   private thresholds = {
     minLpAlphaScore: 70,
     minConfidence: 75,
-    minBuySellRatio: 0.90,
     minTokenAgeHours: 2,
     minMarketCap: 100000,
   };
@@ -80,8 +85,20 @@ export class NoDeployFilterV2 {
       rejectReasons.push('smart money exiting');
     }
 
-    if (criteria.buySellScore < this.thresholds.minBuySellRatio * 100 && da.has('transactions')) {
-      rejectReasons.push(`buySellRatio ${(criteria.buySellScore / 100).toFixed(2)} < ${this.thresholds.minBuySellRatio}`);
+    // LP tx-activity gate: total volume (buys+sells) determines fee potential
+    // Prefer 1h window (stable), fall back to 5min
+    const txActivity = criteria.txActivity1h ?? criteria.txActivity5m ?? 0;
+    const minTxActivity = 10;
+    const limitedData = !da.has('transactions');
+    if (!limitedData && txActivity < minTxActivity && criteria.txActivity5m != null) {
+      rejectReasons.push(`txActivity ${txActivity} < ${minTxActivity} (5min=${criteria.txActivity5m}) — insufficient LP fee volume`);
+    } else if (limitedData && criteria.txActivity5m == null && criteria.buySellScore < 50) {
+      warnings.push('no tx data available for LP fee assessment');
+    }
+
+    // Extreme one-directional dump detection (rug signal, not normal LP activity)
+    if (criteria.sellPct1h != null && criteria.sellPct1h > 95 && txActivity >= minTxActivity) {
+      rejectReasons.push(`extreme dump: ${criteria.sellPct1h.toFixed(0)}% sells over 1h (${txActivity} tx) — rug risk`);
     }
 
     if (criteria.bundlerScore > 0.3) {
