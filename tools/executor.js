@@ -662,16 +662,17 @@ export async function executeTool(name, args) {
           log("deploy", `[DRY_RUN] Simulated DLMM deploy: ${_name} bin_step=${_binStep} activeBin=${_activeBin} amount=${_amount} SOL lane=${_lane} regime=${_regime} → writing memory...`);
           sendToChannel(`🧪 ${_name} dry-run deploy (${_amount} SOL, lane=${_lane})`, "info").catch(() => {});
           // Write both memory files with absolute paths
+          log("deploy", `[DRY_RUN] building records...`);
           let memWriteCount = 0;
-          for (const [label, filePath] of Object.entries({
-            'dry-run-memory': ['data', 'dry-run-memory.json'],
-            'deployment-memory': ['data', 'deployment-memory.json'],
-          })) {
-            try {
+          try {
+            for (const [label, filePath] of Object.entries({
+              'dry-run-memory': ['data', 'dry-run-memory.json'],
+              'deployment-memory': ['data', 'deployment-memory.json'],
+            })) {
               const absPath = repoPath(...filePath);
-              console.log(`[DRY_RUN] writing ${label} to: ${absPath}`);
+              log("deploy", `[DRY_RUN] writing ${label} to: ${absPath}`);
               const raw = fs.existsSync(absPath) ? JSON.parse(fs.readFileSync(absPath, 'utf8')) : { deploys: [] };
-              const record = {
+              const baseRecord = {
                 pool_address: args.pool_address,
                 pool_name: args.pool_name,
                 amount_y: _amount,
@@ -682,30 +683,37 @@ export async function executeTool(name, args) {
                 volatility: args.volatility,
                 timestamp: new Date().toISOString(),
                 dry_run: true,
-                ...(label === 'deployment-memory' ? {
-                  poolAddress: args.pool_address, tokenMint: args.base_mint || null,
-                  name: args.pool_name || args.pool_address?.slice(0, 8),
-                  lane: args.lane || null, regime: args.regime || null,
-                  psychology: args.psychology || null,
-                  lpAlphaScore: args.lp_alpha_score || null,
-                  binStep: args.bin_step || null,
-                  activeBin: result.would_deploy?.active_bin ?? null,
-                  deployAmountSol: Number(_amount),
-                  entryTime: new Date().toISOString(),
-                  entryTvl: args.initial_value_usd || null,
-                  entryFees: null, entryPrice: null,
-                  verdict: "PENDING", dryRun: true,
-                  outcome1h: null, outcome4h: null,
-                } : {}),
               };
+              const deployRecord = {
+                ...baseRecord,
+                poolAddress: args.pool_address,
+                tokenMint: args.base_mint || null,
+                name: args.pool_name || args.pool_address?.slice(0, 8),
+                lane: args.lane || null,
+                regime: args.regime || null,
+                psychology: args.psychology || null,
+                lpAlphaScore: args.lp_alpha_score || null,
+                binStep: args.bin_step || null,
+                activeBin: result?.would_deploy?.active_bin ?? _activeBin ?? null,
+                deployAmountSol: Number(_amount),
+                entryTime: new Date().toISOString(),
+                entryTvl: args.initial_value_usd || null,
+                entryFees: null,
+                entryPrice: null,
+                verdict: "PENDING",
+                dryRun: true,
+                outcome1h: null,
+                outcome4h: null,
+              };
+              const record = label === 'deployment-memory' ? deployRecord : baseRecord;
               fs.mkdirSync(repoPath('data'), { recursive: true });
               raw.deploys.push(record);
               fs.writeFileSync(absPath, JSON.stringify(raw, null, 2));
-              console.log(`[DRY_RUN] memory write OK: ${absPath}`);
+              log("deploy", `[DRY_RUN] memory write OK: ${absPath}`);
               memWriteCount++;
-            } catch (e) {
-              console.error(`[DRY_RUN] memory write FAILED: ${label}`, e.message);
             }
+          } catch (e) {
+            log("deploy", `[DRY_RUN] MEMORY WRITE CRASHED: ${e.message} | ${e.stack}`);
           }
           if (memWriteCount > 0) {
             log("deploy", `[DRY_RUN] Memory written (${memWriteCount}/${2} files)`);
