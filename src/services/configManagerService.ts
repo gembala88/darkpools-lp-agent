@@ -13,7 +13,7 @@ interface ConfigChange {
 const SAFETY_LIMITS: Record<string, { min: number; max: number }> = {
   stopLossPct: { min: -15, max: -1 },
   maxPositions: { min: 1, max: 3 },
-  deployAmountSol: { min: 0.1, max: 1.0 },
+  deployAmountSol: { min: 0.05, max: 0.12 },
   minTvl: { min: 5000, max: 500000 },
 };
 
@@ -224,10 +224,12 @@ export class ConfigManagerService {
     if (this.isLocked('deployAmountSol')) { this.logger.debug('deployAmountSol is locked — skipping'); return; }
     let val: number;
     let reason: string;
-    if (regime === 'PANIC') { val = 0.2; reason = 'panic — minimum deploy'; }
-    else if (regime === 'DISTRIBUTION') { val = 0.3; reason = 'distribution — reduced size'; }
-    else if (regime === 'TRENDING_BULLISH' || regime === 'ACCUMULATION') { val = 0.5; reason = 'bullish — standard deploy'; }
-    else { val = 0.4; reason = 'default deploy amount'; }
+    if (regime === 'PANIC') { val = 0.12; reason = 'panic — minimum deploy'; }
+    else if (regime === 'DISTRIBUTION') { val = 0.12; reason = 'distribution — reduced size'; }
+    else if (regime === 'TRENDING_BULLISH' || regime === 'ACCUMULATION') { val = 0.12; reason = 'bullish — standard deploy'; }
+    else { val = 0.12; reason = 'default deploy amount'; }
+    if (val > 0.12) { val = 0.12; }
+    this.logger.info(`[ConfigManager] deployAmountSol capped at 0.12 (user small-capital test mode)`);
     await this.tryChange('management.deployAmountSol', 'deployAmountSol', val, reason);
   }
 
@@ -261,7 +263,7 @@ ${changesDesc || '  (none — all values already optimal)'}
 Safety rules (ALWAYS enforce):
 - stopLossPct cannot be wider than -15%
 - maxPositions cannot exceed 3
-- deployAmountSol cannot exceed 1.0 SOL
+- deployAmountSol cannot exceed 0.12 SOL (hard cap for small-capital test mode)
 - minTvl cannot be below 5000
 - Never change: strategy, indicators, chartIndicators, hiveMind, dryRun, wallet/RPC/API keys
 

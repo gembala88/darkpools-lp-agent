@@ -744,9 +744,13 @@ export async function runScreeningCycle({ silent = false } = {}) {
     const laneLabel = _resolvedLane.charAt(0).toUpperCase() + _resolvedLane.slice(1);
     const laneLine = `Active lane: ${laneLabel} (minLpAlphaScore=${effectiveMinAlpha}, maxPositions=${config.risk.maxPositions})`;
 
+    if (!config.enableAutoPromote && isDryRun && passing.length > 0) {
+      log("deploy", `[DRY_RUN] Auto-promote disabled — AI decides deploys`);
+    }
+
     // ── DRY RUN: promote top WATCHLIST pool to simulated deploy for learning ──
-    // Run here (after evaluation, before LLM loop) so it executes even if the LLM crashes
-    if (isDryRun && passing.length > 0) {
+    // Gated by config.enableAutoPromote (default false) — AI decides deploys by default
+    if (config.enableAutoPromote && isDryRun && passing.length > 0) {
       let bestEntry = null;
       let bestTvl = -1;
       const poolRanks = [];

@@ -111,6 +111,9 @@ export function updateActiveLaneSetting(value) {
 }
 
 export const config = {
+  // ─── Behaviour Flags ─────────────────────
+  enableAutoPromote: u.enableAutoPromote ?? false,
+
   // ─── Risk Limits ─────────────────────────
   risk: {
     maxPositions:    u.maxPositions    ?? 3,

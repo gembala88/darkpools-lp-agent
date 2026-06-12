@@ -17,6 +17,7 @@ import type { AIWeights } from '../ai/dynamicWeightEngine.js';
 import { agents } from '../agents/index.js';
 
 export interface MasterLPOutput {
+  poolAddress: string;
   lpAlphaScore: number;
   confidence: number;
   feeAprPrediction: number;
@@ -374,6 +375,7 @@ export class LPIntelligenceService {
       this.logger.info(`Evaluation complete: score=${lpAlphaScore.toFixed(2)}, decision=${finalDecision}, time=${endTime - startTime}ms`);
 
       return {
+        poolAddress,
         lpAlphaScore,
         confidence,
         feeAprPrediction: componentScores['feeAprPrediction'] ?? 0,
