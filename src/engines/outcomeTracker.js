@@ -72,6 +72,8 @@ export async function checkOutcomes() {
 
     const raw = JSON.parse(fs.readFileSync(absPath, 'utf8'));
     const deploys = raw.deploys || [];
+    const pending = deploys.filter(d => d.verdict === 'PENDING').length;
+    log("deploy", `[OUTCOME] checkOutcomes running — ${deploys.length} deploys, ${pending} pending`);
     let changed = false;
 
     for (const deploy of deploys) {

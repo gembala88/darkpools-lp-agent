@@ -1044,6 +1044,18 @@ Summarize the current portfolio health, total fees earned, and performance of al
   _cronTasks = [mgmtTask, screenTask, healthTask, briefingTask, briefingWatchdog];
   // Store interval ref so stopCronJobs can clear it
   _cronTasks._pnlPollInterval = pnlPollInterval;
+
+  // Independent outcome-check timer (every 5 min, decoupled from screening/management busy state)
+  _cronTasks._outcomeCheckInterval = setInterval(async () => {
+    try {
+      const { checkOutcomes } = await import('./src/engines/outcomeTracker.js');
+      await checkOutcomes();
+    } catch (e) {
+      log("cron_error", `[OUTCOME] Independent check failed: ${e.message}`);
+    }
+  }, 5 * 60 * 1000);
+  log("startup", "[OUTCOME] Independent outcome-check timer started (every 5m)");
+
   log("cron", `Cycles started — management every ${config.schedule.managementIntervalMin}m, screening every ${config.schedule.screeningIntervalMin}m`);
 }
 
