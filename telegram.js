@@ -501,6 +501,7 @@ export async function createLiveMessage(title, intro = "Starting...", totalSteps
     toolLines: [],
     footer: "",
     messageId: null,
+    channelMessageId: null,
     flushTimer: null,
     flushPromise: null,
     flushRequested: false,
@@ -531,47 +532,85 @@ export async function createLiveMessage(title, intro = "Starting...", totalSteps
     return sections.join("\n\n").slice(0, 4096);
   }
 
+  /** Edit text on a given chat/message. Returns null on failure. */
+  async function editText(chatId, messageId, text) {
+    try {
+      const res = await fetch(`${BASE}/editMessageText`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, message_id: messageId, text }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        log("telegram_warn", `[LIVEMSG] editText ${chatId}/${messageId}: ${res.status} ${err.slice(0, 150)}`);
+        return null;
+      }
+      return await res.json();
+    } catch (e) {
+      log("telegram_warn", `[LIVEMSG] editText ${chatId}/${messageId} failed: ${e.message}`);
+      return null;
+    }
+  }
+
+  /** Send a NEW message to a chat. Returns { result: { message_id } } or null. */
+  async function sendToChatRaw(chatId, text) {
+    try {
+      const res = await fetch(`${BASE}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text }),
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
+
   async function flushNow() {
     state.flushTimer = null;
+    const wasRequested = state.flushRequested;
     state.flushRequested = false;
     const text = render();
 
     if (!state.messageId) {
-      // First send — go to DM + channel, store channel mapping for edit mirroring
-      const sent = await sendMessage(text);
+      // ═══ FIRST SEND ═══
+      // Send to DM
+      const sent = await sendToChatRaw(chatId, text);
       state.messageId = sent?.result?.message_id ?? null;
-      if (state.messageId) {
-        const channelId = resolveChannelId();
-        if (channelId && channelId !== chatId) {
-          const chResult = await sendToChat(channelId, "sendMessage", { text });
-          _channelMsgMap.set(state.messageId, chResult?.result?.message_id ?? null);
-        } else {
-          _channelMsgMap.set(state.messageId, null);
-        }
+
+      // Send one initial message to channel (view-only, no per-step edits)
+      const channelId = resolveChannelId();
+      if (channelId && channelId !== chatId) {
+        const chSent = await sendToChatRaw(channelId, text);
+        state.channelMessageId = chSent?.result?.message_id ?? null;
       }
+
       state.lastText = text;
+      // Reschedule if updates queued while we were awaiting the first send
+      if (wasRequested) scheduleFlush(100);
       return;
     }
 
-    if (text === state.lastText) return;
+    // ═══ DM PER-STEP EDIT ═══
+    if (text === state.lastText) {
+      if (wasRequested) scheduleFlush(100);
+      return;
+    }
     state.lastText = text;
-    const result = await editMessage(text, state.messageId);
+
+    const result = await editText(chatId, state.messageId, text);
     if (!result) {
-      log("telegram_warn", `[LIVEMSG] edit fail for msg ${state.messageId} — sending fresh`);
-      const sent = await sendMessage(text);
+      // DM edit failed permanently → send ONE fresh message, continue with it
+      log("telegram_warn", `[LIVEMSG] edit fail for DM msg ${state.messageId} — sending fresh`);
+      const sent = await sendToChatRaw(chatId, text);
       const prevId = state.messageId;
       state.messageId = sent?.result?.message_id ?? null;
-      if (state.messageId) {
-        const channelId = resolveChannelId();
-        if (channelId && channelId !== chatId) {
-          const chResult = await sendToChat(channelId, "sendMessage", { text });
-          _channelMsgMap.set(state.messageId, chResult?.result?.message_id ?? null);
-        } else {
-          _channelMsgMap.set(state.messageId, null);
-        }
-        _channelMsgMap.delete(prevId);
-      }
+      // IMPORTANT: do NOT send fresh to channel — channel only gets start+final
     }
+
+    // Always reschedule if more updates queued during the flush
+    if (wasRequested) scheduleFlush(100);
   }
 
   function scheduleFlush(delay = 2000) {
@@ -621,7 +660,7 @@ export async function createLiveMessage(title, intro = "Starting...", totalSteps
       scheduleFlush();
     },
     async finalize(finalText) {
-      // Let any pending flush finish so state is stable before we override
+      // Let any pending flush complete
       if (state.flushTimer) {
         await new Promise(r => setTimeout(r, 200));
       }
@@ -633,7 +672,33 @@ export async function createLiveMessage(title, intro = "Starting...", totalSteps
       state.lastAction = null;
       state.toolLines = [];
       state.footer = finalText;
-      await flushNow();
+      const text = render();
+
+      // ═══ FINAL DM EDIT ═══
+      if (state.messageId) {
+        const dmResult = await editText(chatId, state.messageId, text);
+        if (!dmResult) {
+          log("telegram_warn", `[LIVEMSG] final DM edit failed — sending fresh`);
+          await sendToChatRaw(chatId, text);
+        }
+      } else {
+        await sendToChatRaw(chatId, text);
+      }
+
+      // ═══ FINAL CHANNEL EDIT ═══
+      const channelId = resolveChannelId();
+      if (channelId && channelId !== chatId) {
+        if (state.channelMessageId) {
+          const chResult = await editText(channelId, state.channelMessageId, text);
+          if (!chResult) {
+            log("telegram_warn", `[LIVEMSG] final channel edit failed — sending fresh`);
+            await sendToChatRaw(channelId, text);
+          }
+        } else {
+          await sendToChatRaw(channelId, text);
+        }
+      }
+
       _liveMessageDepth = Math.max(0, _liveMessageDepth - 1);
       typing.stop();
     },
@@ -649,7 +714,31 @@ export async function createLiveMessage(title, intro = "Starting...", totalSteps
       state.lastAction = null;
       state.toolLines = [];
       state.footer = `❌ ${errorText}`;
-      await flushNow();
+      const text = render();
+
+      // ═══ FAILURE DM ═══
+      if (state.messageId) {
+        const dmResult = await editText(chatId, state.messageId, text);
+        if (!dmResult) {
+          await sendToChatRaw(chatId, text);
+        }
+      } else {
+        await sendToChatRaw(chatId, text);
+      }
+
+      // ═══ FAILURE CHANNEL ═══
+      const channelId = resolveChannelId();
+      if (channelId && channelId !== chatId) {
+        if (state.channelMessageId) {
+          const chResult = await editText(channelId, state.channelMessageId, text);
+          if (!chResult) {
+            await sendToChatRaw(channelId, text);
+          }
+        } else {
+          await sendToChatRaw(channelId, text);
+        }
+      }
+
       _liveMessageDepth = Math.max(0, _liveMessageDepth - 1);
       typing.stop();
     },
