@@ -25,7 +25,7 @@ export function analyzeDeploymentMemory() {
 
       const finalOutcome = d.outcome4h ?? d.outcome1h ?? null;
 
-      if (d.verdict && d.verdict !== 'PENDING') {
+      if (d.verdict && d.verdict !== 'PENDING' && d.verdict !== 'ANOMALY') {
         sources[source].completed++;
         if (d.verdict === 'PROFIT') sources[source].profits++;
         else if (d.verdict === 'LOSS') sources[source].losses++;
@@ -50,7 +50,7 @@ export function analyzeDeploymentMemory() {
           sources[source].lanes[d.lane] = { count: 0, profits: 0, completed: 0 };
         }
         sources[source].lanes[d.lane].count++;
-        if (d.verdict && d.verdict !== 'PENDING') {
+        if (d.verdict && d.verdict !== 'PENDING' && d.verdict !== 'ANOMALY') {
           sources[source].lanes[d.lane].completed++;
           if (d.verdict === 'PROFIT') sources[source].lanes[d.lane].profits++;
         }

@@ -79,9 +79,22 @@ function estimateFeesEarned(currentState, holdingHours) {
  */
 function determineVerdict(outcome) {
   const { tvlChange, feesEarned, priceChange } = outcome;
-  if (feesEarned > 0 && tvlChange != null && tvlChange > -0.10) return 'PROFIT';
+
+  // Price crash / rug — immediate LOSS regardless of TVL/fees
+  if (priceChange != null && priceChange < -0.50) return 'LOSS';
+
+  // Absurd TVL swing from near-zero entry — mark ANOMALY, exclude from win-rate
+  if (tvlChange != null && tvlChange > 5.0) return 'ANOMALY';
+
+  // Genuine profit: fees earned, price stable (or better), TVL in sane range
+  if (feesEarned > 0 && tvlChange != null && tvlChange > -0.10 && tvlChange <= 5.0) {
+    if (priceChange == null || priceChange > -0.10) return 'PROFIT';
+  }
+
+  // Clear loss signals
   if (tvlChange != null && tvlChange < -0.20) return 'LOSS';
   if (priceChange != null && priceChange < -0.15) return 'LOSS';
+
   return 'NEUTRAL';
 }
 
