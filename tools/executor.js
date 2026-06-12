@@ -682,12 +682,14 @@ export async function executeTool(name, args) {
               timestamp: new Date().toISOString(),
               dry_run: true,
             });
+            fs.mkdirSync(memPath.replace(/\/[^/]+$/, ''), { recursive: true });
             fs.writeFileSync(memPath, JSON.stringify(memRaw, null, 2));
           } catch { /* ignore persistence errors */ }
           // Also record into deployment-memory.json so the learning engine sees this deploy
           try {
             const fs = await import('fs');
             const deployMemPath = '../data/deployment-memory.json';
+            fs.mkdirSync(deployMemPath.replace(/\/[^/]+$/, ''), { recursive: true });
             const deployMemRaw = fs.existsSync(deployMemPath) ? JSON.parse(fs.readFileSync(deployMemPath, 'utf8')) : { deploys: [] };
             deployMemRaw.deploys.push({
               poolAddress: args.pool_address,

@@ -739,18 +739,25 @@ export async function runScreeningCycle({ silent = false } = {}) {
     // Run here (after evaluation, before LLM loop) so it executes even if the LLM crashes
     if (isDryRun && passing.length > 0) {
       let bestEntry = null;
-      let bestScore = -1;
+      let bestMetric = -1;
       for (const entry of passing) {
-        const ai = aiMap[entry.pool.pool];
-        if (ai && ai.deploymentDecision === 'WATCHLIST' && ai.lpAlphaScore >= 25 && ai.lpAlphaScore > bestScore) {
-          bestScore = ai.lpAlphaScore;
+        const pool = entry.pool;
+        if (!pool.verified_dlmm) continue;
+        const tvl = pool.tvl ?? pool.active_tvl ?? 0;
+        const volume = pool.volume_window ?? 0;
+        if (tvl <= 0 && volume <= 0) continue;
+        const stableMetric = tvl + volume * 0.1;
+        if (stableMetric > bestMetric) {
+          bestMetric = stableMetric;
           bestEntry = entry;
         }
       }
       if (bestEntry) {
         const pool = bestEntry.pool;
-        log("deploy", `[DRY_RUN] Promoting top WATCHLIST pool ${pool.name} (score=${bestScore.toFixed(2)}) to simulated DEPLOY`);
-        sendToChannel(`🧪 DRY RUN: Promoting WATCHLIST → DEPLOY for ${pool.name} (score=${bestScore.toFixed(2)})`, "info").catch(() => {});
+        const tvl = pool.tvl ?? pool.active_tvl ?? 0;
+        const volume = pool.volume_window ?? 0;
+        log("deploy", `[DRY_RUN] Auto-promote selecting by stable metric: ${pool.name} volume24h=$${volume.toLocaleString()} tvl=$${tvl.toLocaleString()}`);
+        sendToChannel(`🧪 DRY RUN: Auto-promoting ${pool.name} (vol=$${volume.toLocaleString()})`, "info").catch(() => {});
         try {
           const deployAmount = computeDeployAmount(effectiveBalance.sol);
           const binsBelow = computeBinsBelow(pool.volatility);

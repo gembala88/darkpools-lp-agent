@@ -283,6 +283,17 @@ export class LPIntelligenceService {
       const buySellScore = hasTxData1h ? Math.min(rawBuySellRatio * 50, 100) : (hasTxData5m ? 50 : 50);
       this.logger.info(`[DECISION-DEBUG] ${options?.tokenName || poolAddress.slice(0, 8)} txActivity=${total1h} (1h) 5m=${txActivity5m} buys=${buys1h} sells=${sells1h} sellPct=${sellPct1h.toFixed(1)}% feeScore=${buySellScore.toFixed(1)}`);
 
+      // Volume fallback: when tx-fetch returns 0 but discovery volume24h shows real activity
+      const volumeFallbackActive = !hasTxData1h && !hasTxData5m
+        && options?.cachedVolume24h != null
+        && options.cachedVolume24h > 100_000;
+      const effectiveBuySellScore = volumeFallbackActive
+        ? Math.min((((options.cachedVolume24h ?? 0) / Math.max(options.cachedTvl ?? 1, 1)) * 100), 100)
+        : buySellScore;
+      if (volumeFallbackActive) {
+        this.logger.info(`[DECISION-DEBUG] ${options?.tokenName || poolAddress.slice(0, 8)} txActivity=0 but volume24h=$${(options.cachedVolume24h ?? 0).toLocaleString()} tvl=$${(options.cachedTvl ?? 0).toLocaleString()} → using volume fallback, estimatedFeeScore=${effectiveBuySellScore.toFixed(1)}`);
+      }
+
       // Override concentration risk with enrichment top10Pct when available
       const effectiveConcentrationRisk = (options?.top10Pct != null && options.top10Pct > 0)
         ? options.top10Pct
@@ -317,6 +328,12 @@ export class LPIntelligenceService {
         this.noDeployFilter.setMinLpAlphaScore(laneOverride);
       } else {
         this.noDeployFilter.resetMinLpAlphaScore();
+      }
+
+      // Override lpAlphaScore for volume-backed pools to survive tx-fetch failures
+      if (volumeFallbackActive && options?.isDryRun) {
+        filterCriteria.lpAlphaScore = Math.max(lpAlphaScore, laneOverride ?? 25);
+        filterCriteria.buySellScore = effectiveBuySellScore;
       }
 
       const filterResult = this.noDeployFilter.evaluate(filterCriteria);
