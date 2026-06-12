@@ -342,12 +342,13 @@ export const config = {
 export function computeDeployAmount(walletSol) {
   const reserve  = config.management.gasReserve      ?? 0.2;
   const pct      = config.management.positionSizePct ?? 0.35;
-  const floor    = config.management.deployAmountSol;
-  const ceil     = config.risk.maxDeployAmount;
+  const cap      = config.management.deployAmountSol;  // max deploy per position
+  const ceil     = config.risk.maxDeployAmount;         // absolute ceiling (safety)
+  const hardMin  = 0.05;                                 // absolute floor
   const deployable = Math.max(0, walletSol - reserve);
   const dynamic    = deployable * pct;
-  const result     = Math.min(ceil, Math.max(floor, dynamic));
-  const capped     = Math.min(result, floor); // Never deploy more than deployAmountSol
+  const result     = Math.min(ceil, Math.max(hardMin, dynamic));
+  const capped     = Math.min(result, cap); // never exceed deployAmountSol
   return parseFloat(capped.toFixed(2));
 }
 

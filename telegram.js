@@ -319,8 +319,9 @@ export async function notify(text, type = "info") {
   if (!TOKEN || _channelNotificationLevel === "off") return;
   if (type === "deploy" && _channelNotificationLevel === "errors") return;
   if (type === "info" && _channelNotificationLevel !== "all") return;
-
   if (!chatId) return;
+  // Suppress standalone notifications during a live message (step progress) cycle
+  if (hasActiveLiveMessage()) return;
 
   const truncated = String(text).slice(0, 4096);
 
@@ -557,8 +558,13 @@ export async function createLiveMessage(title, intro = "Starting...", totalSteps
     if (text === state.lastText) return;
     state.lastText = text;
     const result = await editMessage(text, state.messageId);
-    // Fallback: if edit fails (message too old / deleted), send fresh
+    // Fallback: retry once after 1s, then send fresh if truly dead
     if (!result) {
+      log("telegram_warn", `[LIVEMSG] edit failed for msg ${state.messageId}, retrying in 1s`);
+      await sleep(1000);
+      const retry = await editMessage(text, state.messageId);
+      if (retry) return;
+      log("telegram_warn", `[LIVEMSG] retry failed, sending fresh message`);
       const sent = await sendMessage(text);
       const prevId = state.messageId;
       state.messageId = sent?.result?.message_id ?? null;
@@ -570,7 +576,6 @@ export async function createLiveMessage(title, intro = "Starting...", totalSteps
         } else {
           _channelMsgMap.set(state.messageId, null);
         }
-        // Clean up old mapping
         _channelMsgMap.delete(prevId);
       }
     }
@@ -623,11 +628,15 @@ export async function createLiveMessage(title, intro = "Starting...", totalSteps
       scheduleFlush();
     },
     async finalize(finalText) {
+      // Let any pending flush finish so state is stable before we override
+      if (state.flushTimer) {
+        await new Promise(r => setTimeout(r, 200));
+      }
+      if (state.flushPromise) await state.flushPromise;
       if (state.flushTimer) {
         clearTimeout(state.flushTimer);
         state.flushTimer = null;
       }
-      if (state.flushPromise) await state.flushPromise;
       state.lastAction = null;
       state.toolLines = [];
       state.footer = finalText;
@@ -637,10 +646,13 @@ export async function createLiveMessage(title, intro = "Starting...", totalSteps
     },
     async fail(errorText) {
       if (state.flushTimer) {
+        await new Promise(r => setTimeout(r, 200));
+      }
+      if (state.flushPromise) await state.flushPromise;
+      if (state.flushTimer) {
         clearTimeout(state.flushTimer);
         state.flushTimer = null;
       }
-      if (state.flushPromise) await state.flushPromise;
       state.lastAction = null;
       state.toolLines = [];
       state.footer = `❌ ${errorText}`;

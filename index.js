@@ -501,9 +501,8 @@ export async function runScreeningCycle({ silent = false } = {}) {
         config.screening[key] = val;
       }
     }
-    // Lane maxPositions and deployAmountSol override for this cycle
+    // Lane maxPositions override for this cycle (deployAmountSol NOT overridden — user's config takes priority)
     if (laneCfg.maxPositions != null) config.risk.maxPositions = laneCfg.maxPositions;
-    if (laneCfg.deployAmountSol != null) config.management.deployAmountSol = laneCfg.deployAmountSol;
     log("cron", `[SCREENING] Using lane '${_resolvedLane}' thresholds: maxTop10Pct=${config.screening.maxTop10Pct}, maxBotHoldersPct=${config.screening.maxBotHoldersPct}, minTvl=${config.screening.minTvl}, minTokenFeesSol=${config.screening.minTokenFeesSol}, minHolders=${config.screening.minHolders}`);
     const dryRunAlphaOverride = isDryRun ? 25 : null;
     const effectiveMinAlpha = dryRunAlphaOverride !== null ? dryRunAlphaOverride : (laneCfg.minLpAlphaScore ?? 70);
@@ -2585,6 +2584,39 @@ function fmtPct(value) {
 
 // Register restarter — when update_config changes intervals, running cron jobs get replaced
 registerCronRestarter(() => { if (cronStarted) startCronJobs(); });
+
+// ─── Startup: purge poisoned anomaly records ───────────────────
+try {
+  const memFile = repoPath('data', 'deployment-memory.json');
+  if (fs.existsSync(memFile)) {
+    const mem = JSON.parse(fs.readFileSync(memFile, 'utf8'));
+    const deploys = Array.isArray(mem) ? mem : (mem.deployments ?? []);
+    let reclassified = 0;
+    for (const d of deploys) {
+      if (!d || d.verdict === 'ANOMALY') continue;
+      const o4h = d.outcome4h || d.outcome_4h || {};
+      const o1h = d.outcome1h || d.outcome_1h || {};
+      const tvlChange4h = Number(o4h.tvlChange ?? o4h.tvl_change ?? 0);
+      const tvlChange1h = Number(o1h.tvlChange ?? o1h.tvl_change ?? 0);
+      const entryTvl = Number(d.entryTvl ?? d.entry_tvl ?? d.tvl_at_deploy ?? 0);
+      if (tvlChange4h > 5.0 || tvlChange1h > 5.0 || entryTvl < 50000) {
+        d.verdict = 'ANOMALY';
+        reclassified++;
+      }
+    }
+    if (reclassified > 0) {
+      if (Array.isArray(mem)) {
+        fs.writeFileSync(memFile, JSON.stringify(mem, null, 2));
+      } else {
+        mem.deployments = deploys;
+        fs.writeFileSync(memFile, JSON.stringify(mem, null, 2));
+      }
+      log("deploy", `[CLEANUP] reclassified ${reclassified} poisoned records to ANOMALY in deployment-memory.json`);
+    }
+  }
+} catch (e) {
+  log("deploy", `[CLEANUP] anomaly cleanup skipped: ${e.message}`);
+}
 
 if (isMain && isTTY) {
   const rl = readline.createInterface({
