@@ -701,7 +701,7 @@ export async function executeTool(name, args) {
                 entryTime: new Date().toISOString(),
                 entryTvl: args.initial_value_usd || null,
                 entryFees: null,
-                entryPrice: null,
+                entryPrice: result?.would_deploy?.active_price ?? null,
                 verdict: "PENDING",
                 dryRun: true,
                 outcome1h: null,

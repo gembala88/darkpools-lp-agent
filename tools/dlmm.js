@@ -747,6 +747,7 @@ export async function deployPosition({
         amount_x: finalAmountX,
         amount_y: finalAmountY,
         wide_range: totalBins > 69,
+        active_price: activePrice,
       },
       message: "DRY RUN — no transaction sent",
     };

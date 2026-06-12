@@ -23,11 +23,26 @@ export function analyzeDeploymentMemory() {
       }
       sources[source].deploys.push(d);
 
+      const finalOutcome = d.outcome4h ?? d.outcome1h ?? null;
+
       if (d.verdict && d.verdict !== 'PENDING') {
         sources[source].completed++;
         if (d.verdict === 'PROFIT') sources[source].profits++;
         else if (d.verdict === 'LOSS') sources[source].losses++;
         else sources[source].neutrals++;
+
+        if (finalOutcome) {
+          const tvlChange = finalOutcome.tvlChange;
+          const fees = finalOutcome.feesEarned;
+          if (tvlChange != null) {
+            sources[source].tvlChanges ??= [];
+            sources[source].tvlChanges.push(tvlChange);
+          }
+          if (fees != null) {
+            sources[source].feesList ??= [];
+            sources[source].feesList.push(fees);
+          }
+        }
       }
 
       if (d.lane) {
@@ -45,6 +60,8 @@ export function analyzeDeploymentMemory() {
     const result = {};
     for (const [source, data] of Object.entries(sources)) {
       const completed = data.completed;
+      const avgTvlChange = data.tvlChanges?.length > 0 ? (data.tvlChanges.reduce((a, b) => a + b, 0) / data.tvlChanges.length) : null;
+      const avgFeesEarned = data.feesList?.length > 0 ? (data.feesList.reduce((a, b) => a + b, 0) / data.feesList.length) : null;
       const s = {
         totalDeploys: data.deploys.length,
         completed,
@@ -53,8 +70,8 @@ export function analyzeDeploymentMemory() {
         profits: data.profits,
         losses: data.losses,
         neutrals: data.neutrals,
-        avgTvlChange: null,
-        avgFeesEarned: null,
+        avgTvlChange: avgTvlChange != null ? `${(avgTvlChange * 100).toFixed(1)}` : null,
+        avgFeesEarned: avgFeesEarned != null ? avgFeesEarned.toFixed(2) : null,
         perLane: {},
         bestLaneRegime: null,
         worstLaneRegime: null,
