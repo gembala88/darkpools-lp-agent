@@ -90,12 +90,15 @@ import { config } from "./config.js";
 import { getStateSummary } from "./state.js";
 import { getLessonsForPrompt, getPerformanceSummary } from "./lessons.js";
 import { getDecisionSummary } from "./decision-log.js";
+import { getActiveKey, handleApiError } from "./src/services/nvidiaKeyRotator.js";
+
+const hasNvidiaKeys = !!(process.env.NVIDIA_API_KEYS || process.env.NVIDIA_API_KEY);
 
 // Supports OpenRouter (default) or any OpenAI-compatible local server (e.g. LM Studio)
 // To use LM Studio: set LLM_BASE_URL=http://localhost:1234/v1 and LLM_API_KEY=lm-studio in .env
 const client = new OpenAI({
   baseURL: process.env.LLM_BASE_URL || "https://openrouter.ai/api/v1",
-  apiKey: process.env.LLM_API_KEY || process.env.OPENROUTER_API_KEY,
+  apiKey: hasNvidiaKeys ? getActiveKey() : (process.env.LLM_API_KEY || process.env.OPENROUTER_API_KEY),
   timeout: 5 * 60 * 1000,
 });
 
@@ -201,9 +204,11 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
       // Force a tool call on step 0 for action intents — prevents the model from inventing deploy/close outcomes
       const ACTION_INTENTS = /\b(deploy|open|add liquidity|close|exit|withdraw|claim|swap|block|unblock)\b/i;
       let toolChoice = (step === 0 && (ACTION_INTENTS.test(goal) || mustUseRealTool)) ? "required" : "auto";
+      let keyRotated = false;
 
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
+          if (hasNvidiaKeys) client.apiKey = getActiveKey();
           const reqParams = {
             model: usedModel,
             messages,
@@ -214,6 +219,12 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
           if (!omitToolChoice) reqParams.tool_choice = toolChoice;
           response = await client.chat.completions.create(reqParams);
         } catch (error) {
+          // NVIDIA key rotation: max 1 rotation + retry per call
+          if (hasNvidiaKeys && !keyRotated && handleApiError(error)) {
+            keyRotated = true;
+            log("agent", "NVIDIA key rotated — retrying once with new key");
+            continue;
+          }
           if (providerMode === "system" && isSystemRoleError(error)) {
             providerMode = "user_embedded";
             messages = buildMessages(systemPrompt, sessionHistory, goal, providerMode);
