@@ -19,6 +19,8 @@ export interface FilterCriteria {
   rugProbability?: number;
   bundlerRisk?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   concentrationRisk?: number;
+  /** When true, relax certain thresholds (e.g. concentration) for DRY RUN learning */
+  isDryRun?: boolean;
 }
 
 export interface FilterResult {
@@ -114,11 +116,12 @@ export class NoDeployFilterV2 {
       rejectReasons.push('bundler risk CRITICAL');
     }
 
-    if (criteria.concentrationRisk != null && criteria.concentrationRisk > 80) {
-      rejectReasons.push(`concentration risk ${criteria.concentrationRisk}% > 80%`);
+    const concentrationThreshold = criteria.isDryRun ? 95 : 80;
+    if (criteria.concentrationRisk != null && criteria.concentrationRisk > concentrationThreshold) {
+      rejectReasons.push(`concentration risk ${criteria.concentrationRisk}% > ${concentrationThreshold}%${criteria.isDryRun ? ' (dry run relaxed)' : ''}`);
     }
 
-    if (criteria.concentrationRisk != null && criteria.concentrationRisk > 50 && criteria.concentrationRisk <= 80) {
+    if (criteria.concentrationRisk != null && criteria.concentrationRisk > 50 && criteria.concentrationRisk <= concentrationThreshold) {
       warnings.push(`high concentration risk (${criteria.concentrationRisk}%)`);
     }
 

@@ -626,7 +626,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
     // AI Intelligence Layer pool evaluation
     const lpIntelligence = new LPIntelligenceService();
     const laneOverride = effectiveMinAlpha;
-    const aiEvals = await Promise.allSettled(passing.map(({ pool }) =>
+    const aiEvals = await Promise.allSettled(passing.map(({ pool, ti }) =>
       lpIntelligence.evaluatePool(pool.pool, pool.base?.mint || pool.base_mint, {
         tokenName: pool.name, tokenSymbol: pool.symbol,
         marketCap: pool._enrichment?.birdeyeMarketCap || pool._enrichment?.jupiterMarketCap || pool.mcap || 0,
@@ -638,6 +638,8 @@ export async function runScreeningCycle({ silent = false } = {}) {
         cachedFees24h: null,
         cachedBinStep: pool.bin_step ?? null,
         cachedActiveBin: null,
+        isDryRun,
+        top10Pct: pool._enrichment?.topHoldersPct ?? ti?.audit?.top_holders_pct ?? null,
       }).catch(() => null)
     ));
     const aiMap = {};

@@ -3,6 +3,7 @@ import { LpAlphaScoreEngine } from '../engines/lpAlphaScoreEngine.js';
 import { DeploymentDecisionEngine, DeploymentDecision } from '../engines/deploymentDecisionEngine.js';
 import { PositionSizingEngine } from '../engines/positionSizingEngine.js';
 import { NoDeployFilterV2, FilterCriteria } from '../filters/noDeployFilterV2.js';
+import { repositories } from '../repositories/index.js';
 import { Logger } from '../logging/logger.js';
 import { TelemetryService } from '../telemetry/telemetryService.js';
 import { engines } from '../engines/index.js';
@@ -126,6 +127,8 @@ export class LPIntelligenceService {
       cachedFees24h?: number;
       cachedBinStep?: number;
       cachedActiveBin?: number;
+      isDryRun?: boolean;
+      top10Pct?: number | null;
     }
   ): Promise<MasterLPOutput> {
     this.logger.info(`Evaluating pool ${poolAddress} (${tokenMint})`);
@@ -267,6 +270,20 @@ export class LPIntelligenceService {
         regime,
       );
 
+      // Compute buySellScore from real transaction data with neutral fallback
+      const { buys: recentBuys, sells: recentSells } = repositories.transaction.getBuySellCount(poolAddress, 5);
+      const recentTotal = recentBuys + recentSells;
+      const rawBuySellRatio = recentSells > 0 ? recentBuys / recentSells : (recentBuys > 0 ? 99 : 0);
+      const hasTxData = recentTotal > 0;
+      const buySellScore = hasTxData ? Math.min(rawBuySellRatio * 50, 100) : 50;
+      this.logger.info(`[DECISION-DEBUG] ${options?.tokenName || poolAddress.slice(0, 8)} buys=${recentBuys} sells=${recentSells} buySellRatio=${hasTxData ? rawBuySellRatio.toFixed(2) : 'N/A (neutral)'}`);
+
+      // Override concentration risk with enrichment top10Pct when available
+      const effectiveConcentrationRisk = (options?.top10Pct != null && options.top10Pct > 0)
+        ? options.top10Pct
+        : concentrationRisk;
+
+      // In DRY RUN, pass the flag so the filter can relax thresholds
       const filterCriteria: FilterCriteria = {
         lpAlphaScore,
         confidence,
@@ -275,7 +292,7 @@ export class LPIntelligenceService {
         holderGrowthScore: Number(componentScores['holderGrowth'] ?? 0),
         liquidityStabilityScore: Number(componentScores['liquidityStability'] ?? 0),
         smartMoneyScore: Number(componentScores['smartMoney'] ?? 0),
-        buySellScore: Number(componentScores['buySell'] ?? 0),
+        buySellScore,
         bundlerScore: 0,
         liquiditySuspicious: false,
         tokenAgeHours: options?.tokenAgeHours ?? 0,
@@ -283,7 +300,8 @@ export class LPIntelligenceService {
         dataAvailable,
         rugProbability,
         bundlerRisk: bundlerRisk as any,
-        concentrationRisk,
+        concentrationRisk: effectiveConcentrationRisk,
+        isDryRun: options?.isDryRun,
       };
 
       const laneOverride = options?.laneOverride;
