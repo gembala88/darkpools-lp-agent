@@ -155,6 +155,12 @@ export const config = {
     minTvlDiscovery:    u.minTvlDiscovery    ?? 50_000,  // API-level TVL floor — junk pools filtered at source
     minVolumeDiscovery: u.minVolumeDiscovery ?? 50_000,  // API-level volume floor
     discoverySortBy:    u.discoverySortBy    ?? "volume:desc", // sort pools by volume descending at API level
+    // Non-Meteora discovery sources (all disabled by default — only Meteora DLMM is deployable)
+    enableDexscreener:  u.enableDexscreener  ?? false,
+    enableOrca:         u.enableOrca         ?? false,
+    enableRaydium:      u.enableRaydium      ?? false,
+    enableHawkfi:       u.enableHawkfi       ?? false,
+    enableGmgn:         u.enableGmgn         ?? false,
   },
 
   gmgn: {
@@ -390,6 +396,11 @@ export function reloadScreeningThresholds() {
     if (fresh.minTvlDiscovery    != null) s.minTvlDiscovery    = fresh.minTvlDiscovery;
     if (fresh.minVolumeDiscovery != null) s.minVolumeDiscovery = fresh.minVolumeDiscovery;
     if (fresh.discoverySortBy    != null) s.discoverySortBy    = fresh.discoverySortBy;
+    if (fresh.enableDexscreener !== undefined) s.enableDexscreener = fresh.enableDexscreener;
+    if (fresh.enableOrca        !== undefined) s.enableOrca        = fresh.enableOrca;
+    if (fresh.enableRaydium     !== undefined) s.enableRaydium     = fresh.enableRaydium;
+    if (fresh.enableHawkfi      !== undefined) s.enableHawkfi      = fresh.enableHawkfi;
+    if (fresh.enableGmgn        !== undefined) s.enableGmgn        = fresh.enableGmgn;
     if (fresh.blockedLaunchpads !== undefined) s.blockedLaunchpads = fresh.blockedLaunchpads;
     // Management and risk overrides
     if (fresh.maxPositions != null) config.risk.maxPositions = fresh.maxPositions;

@@ -936,14 +936,20 @@ async function discoverFromHawkFi() {
  * Priority order for duplicate mints: meteora > gmgn > dexscreener_trending > dexscreener_boosted > raydium > orca > hawkfi
  */
 async function discoverAll() {
+  const s = config.screening;
+  const allDisabled = !s.enableDexscreener && !s.enableOrca && !s.enableRaydium && !s.enableHawkfi && !s.enableGmgn;
+  if (allDisabled) {
+    log("discovery", "[DISCOVERY] Meteora-only mode (other sources disabled)");
+  }
+
   const sources = await Promise.allSettled([
     discoverFromMeteora(),
-    discoverFromGMGN(),
-    discoverFromDexScreenerTrending(),
-    discoverFromDexScreenerBoosted(),
-    discoverFromRaydium(),
-    discoverFromOrca(),
-    discoverFromHawkFi(),
+    s.enableGmgn ? discoverFromGMGN() : Promise.resolve({ pools: [], source: "gmgn" }),
+    s.enableDexscreener ? discoverFromDexScreenerTrending() : Promise.resolve({ pools: [], source: "dexscreener_trending" }),
+    s.enableDexscreener ? discoverFromDexScreenerBoosted() : Promise.resolve({ pools: [], source: "dexscreener_boosted" }),
+    s.enableRaydium ? discoverFromRaydium() : Promise.resolve({ pools: [], source: "raydium" }),
+    s.enableOrca ? discoverFromOrca() : Promise.resolve({ pools: [], source: "orca" }),
+    s.enableHawkfi ? discoverFromHawkFi() : Promise.resolve({ pools: [], source: "hawkfi" }),
   ]);
 
   const allPools = [];
