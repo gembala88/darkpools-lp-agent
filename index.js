@@ -780,6 +780,10 @@ export async function runScreeningCycle({ silent = false } = {}) {
             fee_tvl_ratio: pool.fee_active_tvl_ratio ?? pool.fee_tvl_ratio,
             organic_score: pool.organic_score,
             initial_value_usd: pool.tvl ?? pool.active_tvl ?? null,
+            lane: _resolvedLane,
+            regime: _latestRegime,
+            psychology: _latestPsychology,
+            lp_alpha_score: aiMap[pool.pool]?.lpAlphaScore ?? null,
           });
           if (result?.success !== false && !result?.error && !result?.blocked) {
             deploySucceeded = true;

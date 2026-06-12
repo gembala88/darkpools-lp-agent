@@ -659,58 +659,57 @@ export async function executeTool(name, args) {
           const _amount = result.would_deploy?.amount_y ?? args.amount_y ?? args.amount_sol ?? 0;
           const _lane = args.lane || "?";
           const _regime = args.regime || "?";
-          const logLine = `[DRY_RUN] Simulated DLMM deploy: ${_name} bin_step=${_binStep} activeBin=${_activeBin} amount=${_amount} SOL lane=${_lane} regime=${_regime} → memory written`;
-          log("deploy", logLine);
-          const { sendToChannel } = await import('../telegram.js');
-          sendToChannel("🧪 " + logLine, "info").catch(() => {});
-          // Track in deployment memory as dry_run for self-learning
-          try {
-            const fs = await import('fs');
-            const memPath = '../data/dry-run-memory.json';
-            const memRaw = fs.existsSync(memPath) ? JSON.parse(fs.readFileSync(memPath, 'utf8')) : { deploys: [] };
-            memRaw.deploys.push({
-              pool_address: args.pool_address,
-              pool_name: args.pool_name,
-              amount_y: _amount,
-              strategy: args.strategy,
-              bins_below: args.bins_below,
-              downside_pct: args.downside_pct,
-              upside_pct: args.upside_pct,
-              volatility: args.volatility,
-              timestamp: new Date().toISOString(),
-              dry_run: true,
-            });
-            fs.mkdirSync(memPath.replace(/\/[^/]+$/, ''), { recursive: true });
-            fs.writeFileSync(memPath, JSON.stringify(memRaw, null, 2));
-          } catch { /* ignore persistence errors */ }
-          // Also record into deployment-memory.json so the learning engine sees this deploy
-          try {
-            const fs = await import('fs');
-            const deployMemPath = '../data/deployment-memory.json';
-            fs.mkdirSync(deployMemPath.replace(/\/[^/]+$/, ''), { recursive: true });
-            const deployMemRaw = fs.existsSync(deployMemPath) ? JSON.parse(fs.readFileSync(deployMemPath, 'utf8')) : { deploys: [] };
-            deployMemRaw.deploys.push({
-              poolAddress: args.pool_address,
-              tokenMint: args.base_mint || null,
-              name: args.pool_name || args.pool_address?.slice(0, 8),
-              lane: args.lane || null,
-              regime: args.regime || null,
-              psychology: args.psychology || null,
-              lpAlphaScore: args.lp_alpha_score || null,
-              binStep: args.bin_step || null,
-              activeBin: result.would_deploy?.active_bin ?? null,
-              deployAmountSol: Number(_amount),
-              entryTime: new Date().toISOString(),
-              entryTvl: args.initial_value_usd || null,
-              entryFees: null,
-              entryPrice: null,
-              verdict: "PENDING",
-              dryRun: true,
-              outcome1h: null,
-              outcome4h: null,
-            });
-            fs.writeFileSync(deployMemPath, JSON.stringify(deployMemRaw, null, 2));
-          } catch { /* ignore persistence errors */ }
+          log("deploy", `[DRY_RUN] Simulated DLMM deploy: ${_name} bin_step=${_binStep} activeBin=${_activeBin} amount=${_amount} SOL lane=${_lane} regime=${_regime} → writing memory...`);
+          sendToChannel(`🧪 ${_name} dry-run deploy (${_amount} SOL, lane=${_lane})`, "info").catch(() => {});
+          // Write both memory files with absolute paths
+          let memWriteCount = 0;
+          for (const [label, filePath] of Object.entries({
+            'dry-run-memory': ['data', 'dry-run-memory.json'],
+            'deployment-memory': ['data', 'deployment-memory.json'],
+          })) {
+            try {
+              const absPath = repoPath(...filePath);
+              console.log(`[DRY_RUN] writing ${label} to: ${absPath}`);
+              const raw = fs.existsSync(absPath) ? JSON.parse(fs.readFileSync(absPath, 'utf8')) : { deploys: [] };
+              const record = {
+                pool_address: args.pool_address,
+                pool_name: args.pool_name,
+                amount_y: _amount,
+                strategy: args.strategy,
+                bins_below: args.bins_below,
+                downside_pct: args.downside_pct,
+                upside_pct: args.upside_pct,
+                volatility: args.volatility,
+                timestamp: new Date().toISOString(),
+                dry_run: true,
+                ...(label === 'deployment-memory' ? {
+                  poolAddress: args.pool_address, tokenMint: args.base_mint || null,
+                  name: args.pool_name || args.pool_address?.slice(0, 8),
+                  lane: args.lane || null, regime: args.regime || null,
+                  psychology: args.psychology || null,
+                  lpAlphaScore: args.lp_alpha_score || null,
+                  binStep: args.bin_step || null,
+                  activeBin: result.would_deploy?.active_bin ?? null,
+                  deployAmountSol: Number(_amount),
+                  entryTime: new Date().toISOString(),
+                  entryTvl: args.initial_value_usd || null,
+                  entryFees: null, entryPrice: null,
+                  verdict: "PENDING", dryRun: true,
+                  outcome1h: null, outcome4h: null,
+                } : {}),
+              };
+              fs.mkdirSync(repoPath('data'), { recursive: true });
+              raw.deploys.push(record);
+              fs.writeFileSync(absPath, JSON.stringify(raw, null, 2));
+              console.log(`[DRY_RUN] memory write OK: ${absPath}`);
+              memWriteCount++;
+            } catch (e) {
+              console.error(`[DRY_RUN] memory write FAILED: ${label}`, e.message);
+            }
+          }
+          if (memWriteCount > 0) {
+            log("deploy", `[DRY_RUN] Memory written (${memWriteCount}/${2} files)`);
+          }
         } else {
           notifyDeploy({ pair: result.pool_name || args.pool_name || args.pool_address?.slice(0, 8), amountSol: args.amount_y ?? args.amount_sol ?? 0, position: result.position, tx: result.txs?.[0] ?? result.tx, priceRange: result.price_range, rangeCoverage: result.range_coverage, binStep: result.bin_step, baseFee: result.base_fee }).catch(() => {});
         }
