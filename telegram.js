@@ -20,6 +20,9 @@ let _liveMessageDepth = 0;
 let _warnedMissingChatId = false;
 let _warnedMissingAllowedUsers = false;
 
+// Message ID map for edit mirroring: dmMessageId -> channelMessageId
+const _channelMsgMap = new Map();
+
 function nonEmptyChatId(value) {
   if (value == null) return null;
   const trimmed = String(value).trim();
@@ -144,6 +147,31 @@ async function postTelegramRaw(method, body) {
   }
 }
 
+/** Send to any chat (not just the configured DM). */
+async function sendToChat(chatId, method, body) {
+  if (!TOKEN) return null;
+  try {
+    const res = await fetch(`${BASE}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, ...body }),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      if (res.status === 401) {
+        log("telegram_error", `${method} 401 Unauthorized — check TELEGRAM_BOT_TOKEN`);
+      } else {
+        log("telegram_warn", `${method} to chat ${chatId} (${res.status}): ${err.slice(0, 200)}`);
+      }
+      return null;
+    }
+    return await res.json();
+  } catch (e) {
+    log("telegram_warn", `${method} to chat ${chatId} failed: ${e.message}`);
+    return null;
+  }
+}
+
 export async function sendMessage(text) {
   if (!TOKEN || !chatId) return;
   return postTelegram("sendMessage", { text: String(text).slice(0, 4096) });
@@ -151,10 +179,26 @@ export async function sendMessage(text) {
 
 export async function sendMessageWithButtons(text, inlineKeyboard) {
   if (!TOKEN || !chatId) return;
-  return postTelegram("sendMessage", {
-    text: String(text).slice(0, 4096),
+
+  const truncated = String(text).slice(0, 4096);
+
+  // Send to DM with buttons
+  const dmResult = await postTelegram("sendMessage", {
+    text: truncated,
     reply_markup: { inline_keyboard: inlineKeyboard },
   });
+
+  // Send text-only to channel if it differs from DM
+  const channelId = resolveChannelId();
+  if (channelId && channelId !== chatId) {
+    const channelResult = await sendToChat(channelId, "sendMessage", { text: truncated });
+    const channelMsgId = channelResult?.result?.message_id ?? null;
+    if (dmResult?.result?.message_id) {
+      _channelMsgMap.set(dmResult.result.message_id, channelMsgId);
+    }
+  }
+
+  return dmResult;
 }
 
 export async function sendHTML(html) {
@@ -186,8 +230,9 @@ function resolveChannelId() {
 }
 
 /**
- * Single notification: send to bot DM once, then forward to channel.
- * DM and channel always show byte-identical "Forwarded from" messages.
+ * Single notification: sendMessage to bot DM and directly to channel.
+ * DM always gets the message; channel gets the same text with no action buttons.
+ * Message IDs are tracked so edits mirror to both.
  */
 export async function notify(text, type = "info") {
   if (!TOKEN || _channelNotificationLevel === "off") return;
@@ -205,26 +250,13 @@ export async function notify(text, type = "info") {
     return;
   }
 
-  // Forward to channel if it differs from DM (skip duplicate)
+  // Send directly to channel if it differs from DM
   const channelId = resolveChannelId();
   if (channelId && channelId !== chatId) {
-    try {
-      const res = await fetch(`${BASE}/forwardMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: channelId,
-          from_chat_id: chatId,
-          message_id: dmResult.result.message_id,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.text();
-        log("telegram_warn", `notify: forward to channel failed (${res.status}): ${err.slice(0, 200)}`);
-      }
-    } catch (e) {
-      log("telegram_warn", `notify: forward to channel failed: ${e.message}`);
-    }
+    const channelResult = await sendToChat(channelId, "sendMessage", { text: truncated });
+    _channelMsgMap.set(dmResult.result.message_id, channelResult?.result?.message_id ?? null);
+  } else {
+    _channelMsgMap.set(dmResult.result.message_id, null);
   }
 
   log("telegram", `notify: ${truncated.slice(0, 80)}`);
@@ -237,19 +269,56 @@ export async function sendToChannel(text, type = "info") {
 
 export async function editMessage(text, messageId) {
   if (!TOKEN || !chatId || !messageId) return null;
-  return postTelegram("editMessageText", {
+
+  const truncated = String(text).slice(0, 4096);
+
+  // Edit DM
+  const result = await postTelegram("editMessageText", {
     message_id: messageId,
-    text: String(text).slice(0, 4096),
+    text: truncated,
   });
+
+  // Mirror edit to channel
+  const channelMsgId = _channelMsgMap.get(messageId);
+  if (channelMsgId) {
+    const channelId = resolveChannelId();
+    if (channelId && channelId !== chatId) {
+      await sendToChat(channelId, "editMessageText", {
+        message_id: channelMsgId,
+        text: truncated,
+      });
+    }
+  }
+
+  return result;
 }
 
 export async function editMessageWithButtons(text, messageId, inlineKeyboard) {
   if (!TOKEN || !chatId || !messageId) return null;
-  return postTelegram("editMessageText", {
+
+  const truncated = String(text).slice(0, 4096);
+
+  // Edit DM with buttons
+  const result = await postTelegram("editMessageText", {
     message_id: messageId,
-    text: String(text).slice(0, 4096),
+    text: truncated,
     reply_markup: { inline_keyboard: inlineKeyboard },
   });
+
+  // Mirror edit to channel WITHOUT buttons (text only, view-only)
+  const channelMsgId = _channelMsgMap.get(messageId);
+  if (channelMsgId) {
+    const channelId = resolveChannelId();
+    if (channelId && channelId !== chatId) {
+      await sendToChat(channelId, "editMessageText", {
+        message_id: channelMsgId,
+        text: truncated,
+        // No reply_markup — channel is view-only
+      });
+    }
+  }
+
+  return result;
 }
 
 export async function answerCallbackQuery(callbackQueryId, text = "") {
@@ -548,7 +617,7 @@ export function stopPolling() {
 }
 
 // ─── Notification helpers ────────────────────────────────────────
-/** Send a notification with HTML formatting (forwarded to both DM and channel). */
+/** Send a notification with HTML formatting (direct to both DM and channel). */
 async function notifyHTML(html) {
   if (!TOKEN || _channelNotificationLevel === "off") return;
   if (!chatId) return;
@@ -562,26 +631,13 @@ async function notifyHTML(html) {
     return;
   }
 
-  // Forward to channel if different from DM
+  // Send directly to channel if it differs from DM
   const channelId = resolveChannelId();
   if (channelId && channelId !== chatId) {
-    try {
-      const res = await fetch(`${BASE}/forwardMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: channelId,
-          from_chat_id: chatId,
-          message_id: dmResult.result.message_id,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.text();
-        log("telegram_warn", `notifyHTML: forward to channel failed (${res.status}): ${err.slice(0, 200)}`);
-      }
-    } catch (e) {
-      log("telegram_warn", `notifyHTML: forward to channel failed: ${e.message}`);
-    }
+    const channelResult = await sendToChat(channelId, "sendMessage", { text: truncated, parse_mode: "HTML" });
+    _channelMsgMap.set(dmResult.result.message_id, channelResult?.result?.message_id ?? null);
+  } else {
+    _channelMsgMap.set(dmResult.result.message_id, null);
   }
 }
 
