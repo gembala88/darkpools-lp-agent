@@ -629,8 +629,15 @@ export async function runScreeningCycle({ silent = false } = {}) {
     const aiEvals = await Promise.allSettled(passing.map(({ pool }) =>
       lpIntelligence.evaluatePool(pool.pool, pool.base?.mint || pool.base_mint, {
         tokenName: pool.name, tokenSymbol: pool.symbol,
-        marketCap: pool.mcap, tokenAgeHours: pool.token_age_hours,
+        marketCap: pool._enrichment?.birdeyeMarketCap || pool._enrichment?.jupiterMarketCap || pool.mcap || 0,
+        tokenAgeHours: pool.token_age_hours,
         laneOverride,
+        verifiedDlmm: pool.verified_dlmm,
+        cachedTvl: pool.tvl ?? pool.active_tvl ?? null,
+        cachedVolume24h: pool.volume_window ?? null,
+        cachedFees24h: null,
+        cachedBinStep: pool.bin_step ?? null,
+        cachedActiveBin: null,
       }).catch(() => null)
     ));
     const aiMap = {};

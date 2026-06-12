@@ -120,6 +120,12 @@ export class LPIntelligenceService {
       marketCap?: number;
       tokenAgeHours?: number;
       laneOverride?: number;
+      verifiedDlmm?: boolean;
+      cachedTvl?: number;
+      cachedVolume24h?: number;
+      cachedFees24h?: number;
+      cachedBinStep?: number;
+      cachedActiveBin?: number;
     }
   ): Promise<MasterLPOutput> {
     this.logger.info(`Evaluating pool ${poolAddress} (${tokenMint})`);
@@ -127,7 +133,16 @@ export class LPIntelligenceService {
     const startTime = Date.now();
 
     try {
-      const fullSyncResult = await this.marketData.fullSync(tokenMint, poolAddress);
+      const cachedDlmmData = options?.verifiedDlmm ? {
+        tvl: options.cachedTvl,
+        volume24h: options.cachedVolume24h,
+        fees24h: options.cachedFees24h,
+        binStep: options.cachedBinStep,
+        activeBin: options.cachedActiveBin,
+        tokenMint,
+        verifiedDlmm: true,
+      } : undefined;
+      const fullSyncResult = await this.marketData.fullSync(tokenMint, poolAddress, cachedDlmmData);
       const dataAvailable = new Set<string>();
       if (fullSyncResult.holders > 0) dataAvailable.add('holders');
       if (fullSyncResult.transactions > 0) dataAvailable.add('transactions');
@@ -279,6 +294,12 @@ export class LPIntelligenceService {
       }
 
       const filterResult = this.noDeployFilter.evaluate(filterCriteria);
+
+      if (!filterResult.passed) {
+        const label = options?.tokenName || options?.tokenSymbol || poolAddress.slice(0, 8);
+        const threshold = options?.laneOverride ?? 70;
+        this.logger.info(`[DECISION] ${label} score=${lpAlphaScore.toFixed(2)} ≥ threshold=${threshold} BUT rejected because: ${filterResult.rejectReasons.join(' | ')}`);
+      }
 
       const finalDecision: DeploymentDecision = filterResult.passed
         ? filterResult.decision

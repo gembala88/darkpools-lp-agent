@@ -338,7 +338,23 @@ export class MarketDataService {
     }
   }
 
-  async syncPoolLiquidity(poolAddress: string): Promise<LiquiditySnapshot | null> {
+  async syncPoolLiquidity(poolAddress: string, cachedDlmmData?: { tvl?: number; volume24h?: number; fees24h?: number; binStep?: number; activeBin?: number; tokenMint?: string; verifiedDlmm?: boolean }): Promise<LiquiditySnapshot | null> {
+    if (cachedDlmmData?.verifiedDlmm && cachedDlmmData.tvl != null && cachedDlmmData.tvl > 0) {
+      const tvl = cachedDlmmData.tvl;
+      const snapshot: LiquiditySnapshot = {
+        poolAddress,
+        tokenMint: cachedDlmmData.tokenMint ?? poolAddress,
+        liquidity: tvl,
+        tvl,
+        activeBinLiquidity: 0,
+        timestamp: new Date(),
+        source: 'pool-discovery',
+      };
+      await repositories.liquidity.add(snapshot);
+      const label = poolAddress.slice(0, 8);
+      console.log(`  [EVAL] ${label} using cached DLMM tvl=${tvl} (skip dead endpoint)`);
+      return snapshot;
+    }
     try {
       const pool = await this.meteora.getPool(poolAddress);
       if (!pool || !pool.mintX) {
@@ -387,7 +403,7 @@ export class MarketDataService {
     }
   }
 
-  async fullSync(mint: string, poolAddress: string): Promise<{
+  async fullSync(mint: string, poolAddress: string, cachedDlmmData?: { tvl?: number; volume24h?: number; fees24h?: number; binStep?: number; activeBin?: number; tokenMint?: string; verifiedDlmm?: boolean }): Promise<{
     token: TokenData | null;
     holders: number;
     transactions: number;
@@ -399,7 +415,7 @@ export class MarketDataService {
       this.fetchAndStoreHolders(mint),
       this.fetchAndStoreTransactions(mint, poolAddress),
       this.fetchAndStoreMarketData(mint, poolAddress),
-      this.syncPoolLiquidity(poolAddress),
+      this.syncPoolLiquidity(poolAddress, cachedDlmmData),
     ]);
 
     return {
