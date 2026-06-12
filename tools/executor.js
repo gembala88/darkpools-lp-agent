@@ -683,6 +683,8 @@ export async function executeTool(name, args) {
             const _amount = result?.would_deploy?.amount_y ?? args.amount_y ?? args.amount_sol ?? 0;
             const _lane = args.lane || "?";
             const _regime = args.regime || "?";
+            const _entryTvl = args.entry_tvl || args.initial_value_usd || null;
+            log("deploy", `[DEPLOY] ${_name} resolved TVL=${_entryTvl} for gate+record`);
             log("deploy", `[DRY_RUN] Simulated DLMM deploy: ${_name} bin_step=${_binStep} activeBin=${_activeBin} amount=${_amount} SOL lane=${_lane} regime=${_regime} → writing memory...`);
             log("deploy", "[DRY_RUN] building records...");
             // Write both memory files with absolute paths
@@ -720,7 +722,7 @@ export async function executeTool(name, args) {
                 activeBin: result?.would_deploy?.active_bin ?? _activeBin ?? null,
                 deployAmountSol: Number(_amount),
                 entryTime: new Date().toISOString(),
-                entryTvl: args.initial_value_usd || null,
+                entryTvl: args.entry_tvl || args.initial_value_usd || null,
                 entryFees: null,
                 entryPrice: result?.would_deploy?.active_price ?? null,
                 verdict: "PENDING",
