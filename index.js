@@ -1,6 +1,7 @@
 import "./envcrypt.js";
 import cron from "node-cron";
 import readline from "readline";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { agentLoop } from "./agent.js";
@@ -2882,8 +2883,7 @@ Focus on: hold duration, entry/exit timing, what win rates look like, whether sc
           console.log(`\nNeed at least 5 closed positions to evolve. ${needed} more needed.\n`);
           return;
         }
-        const fs = await import("fs");
-        const lessonsData = JSON.parse(fs.default.readFileSync(repoPath("lessons.json"), "utf8"));
+        const lessonsData = JSON.parse(fs.readFileSync(repoPath("lessons.json"), "utf8"));
         const result = evolveThresholds(lessonsData.performance, config);
         if (!result || Object.keys(result.changes).length === 0) {
           console.log("\nNo threshold changes needed — current settings already match performance data.\n");

@@ -320,8 +320,6 @@ export async function notify(text, type = "info") {
   if (type === "deploy" && _channelNotificationLevel === "errors") return;
   if (type === "info" && _channelNotificationLevel !== "all") return;
   if (!chatId) return;
-  // Suppress standalone notifications during a live message (step progress) cycle
-  if (hasActiveLiveMessage()) return;
 
   const truncated = String(text).slice(0, 4096);
 
@@ -558,13 +556,8 @@ export async function createLiveMessage(title, intro = "Starting...", totalSteps
     if (text === state.lastText) return;
     state.lastText = text;
     const result = await editMessage(text, state.messageId);
-    // Fallback: retry once after 1s, then send fresh if truly dead
     if (!result) {
-      log("telegram_warn", `[LIVEMSG] edit failed for msg ${state.messageId}, retrying in 1s`);
-      await sleep(1000);
-      const retry = await editMessage(text, state.messageId);
-      if (retry) return;
-      log("telegram_warn", `[LIVEMSG] retry failed, sending fresh message`);
+      log("telegram_warn", `[LIVEMSG] edit fail for msg ${state.messageId} — sending fresh`);
       const sent = await sendMessage(text);
       const prevId = state.messageId;
       state.messageId = sent?.result?.message_id ?? null;
