@@ -104,58 +104,56 @@ export async function checkOutcomes() {
       const now = Date.now();
       const ageHours = (now - entryTime) / (1000 * 60 * 60);
 
+      // Independent checks — both can fire in the same cycle (e.g. 9h-old deploy)
+      if (ageHours >= 1 && deploy.outcome1h == null) {
+        log("deploy", `[OUTCOME] Checking 1h for ${deploy.name}...`);
+        const state = await fetchPoolCurrentState(deploy.poolAddress || deploy.pool_address);
+        if (state) {
+          const entryTvl = deploy.entryTvl ?? 0;
+          const entryPrice = deploy.entryPrice ?? null;
+          deploy.outcome1h = {
+            checkedAt: new Date().toISOString(),
+            currentTvl: state.tvl,
+            tvlChange: entryTvl > 0 ? (state.tvl - entryTvl) / entryTvl : null,
+            feesEarned: estimateFeesEarned(state, 1),
+            priceChange: (entryPrice != null && state.price != null) ? (state.price - entryPrice) / entryPrice : null,
+            note: 'SIMULATED (computed from discovery data)',
+          };
+          changed = true;
+          log("deploy", `[OUTCOME] ${deploy.name} 1h saved — TVLΔ=${(deploy.outcome1h.tvlChange != null ? (deploy.outcome1h.tvlChange * 100).toFixed(1) : '?')}% fees=$${deploy.outcome1h.feesEarned.toFixed(2)}`);
+        } else {
+          log("deploy", `[OUTCOME] ${deploy.name} 1h fetch failed — will retry`);
+        }
+      }
+
       if (ageHours >= 4 && deploy.outcome4h == null) {
         log("deploy", `[OUTCOME] Checking 4h for ${deploy.name}...`);
         const state = await fetchPoolCurrentState(deploy.poolAddress || deploy.pool_address);
-        if (!state) {
-          log("deploy", `[OUTCOME] Fetch failed for ${deploy.name} — will retry next cycle`);
-          continue;
+        if (state) {
+          const entryTvl = deploy.entryTvl ?? 0;
+          const entryPrice = deploy.entryPrice ?? null;
+          const outcome = {
+            checkedAt: new Date().toISOString(),
+            currentTvl: state.tvl,
+            tvlChange: entryTvl > 0 ? (state.tvl - entryTvl) / entryTvl : null,
+            feesEarned: estimateFeesEarned(state, 4),
+            priceChange: (entryPrice != null && state.price != null) ? (state.price - entryPrice) / entryPrice : null,
+            note: 'SIMULATED (computed from discovery data)',
+          };
+          deploy.outcome4h = outcome;
+          deploy.verdict = determineVerdict(outcome);
+          changed = true;
+
+          log("deploy", `[OUTCOME] ${deploy.name} 4h saved, verdict=${deploy.verdict} — TVLΔ=${(outcome.tvlChange != null ? (outcome.tvlChange * 100).toFixed(1) : '?')}% fees=$${outcome.feesEarned.toFixed(2)}`);
+
+          const line = `📊 [SIM] Outcome ${deploy.name}: ${deploy.verdict} | TVLΔ=${(outcome.tvlChange != null ? (outcome.tvlChange * 100).toFixed(1) : '?')}% | fees=$${outcome.feesEarned.toFixed(2)} | source=${deploy.deploySource ?? 'ai_chosen'}`;
+          try {
+            const { sendToChannel } = await import('../../telegram.js');
+            sendToChannel(line, "info").catch(() => {});
+          } catch (_) {}
+        } else {
+          log("deploy", `[OUTCOME] ${deploy.name} 4h fetch failed — will retry`);
         }
-
-        const entryTvl = deploy.entryTvl ?? 0;
-        const entryPrice = deploy.entryPrice ?? null;
-        const holdingHours = 4;
-
-        const outcome = {
-          checkedAt: new Date().toISOString(),
-          currentTvl: state.tvl,
-          tvlChange: entryTvl > 0 ? (state.tvl - entryTvl) / entryTvl : null,
-          feesEarned: estimateFeesEarned(state, holdingHours),
-          priceChange: (entryPrice != null && state.price != null) ? (state.price - entryPrice) / entryPrice : null,
-          note: 'SIMULATED (computed from discovery data)',
-        };
-        deploy.outcome4h = outcome;
-        deploy.verdict = determineVerdict(outcome);
-        changed = true;
-
-        const line = `📊 [SIM] Outcome ${deploy.name}: ${deploy.verdict} | TVLΔ=${(outcome.tvlChange != null ? (outcome.tvlChange * 100).toFixed(1) : '?')}% | fees=$${outcome.feesEarned.toFixed(2)} | source=${deploy.deploySource ?? 'ai_chosen'}`;
-        log("deploy", `[OUTCOME] ${line}`);
-        try {
-          const { sendToChannel } = await import('../../telegram.js');
-          sendToChannel(line, "info").catch(() => {});
-        } catch (_) {}
-      } else if (ageHours >= 1 && deploy.outcome1h == null) {
-        log("deploy", `[OUTCOME] Checking 1h for ${deploy.name}...`);
-        const state = await fetchPoolCurrentState(deploy.poolAddress || deploy.pool_address);
-        if (!state) {
-          log("deploy", `[OUTCOME] Fetch failed for ${deploy.name} at 1h — will retry next cycle`);
-          continue;
-        }
-
-        const entryTvl = deploy.entryTvl ?? 0;
-        const entryPrice = deploy.entryPrice ?? null;
-        const holdingHours = 1;
-
-        deploy.outcome1h = {
-          checkedAt: new Date().toISOString(),
-          currentTvl: state.tvl,
-          tvlChange: entryTvl > 0 ? (state.tvl - entryTvl) / entryTvl : null,
-          feesEarned: estimateFeesEarned(state, holdingHours),
-          priceChange: (entryPrice != null && state.price != null) ? (state.price - entryPrice) / entryPrice : null,
-          note: 'SIMULATED (computed from discovery data)',
-        };
-        changed = true;
-        log("deploy", `[OUTCOME] 1h check for ${deploy.name}: TVLΔ=${(deploy.outcome1h.tvlChange != null ? (deploy.outcome1h.tvlChange * 100).toFixed(1) : '?')}% | fees=$${deploy.outcome1h.feesEarned.toFixed(2)}`);
       }
     }
 

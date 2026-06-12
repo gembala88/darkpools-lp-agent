@@ -172,36 +172,69 @@ export function getChannelNotificationLevel() {
   return _channelNotificationLevel;
 }
 
+function resolveChannelId() {
+  let id = process.env.TELEGRAM_CHANNEL_ID || null;
+  if (!id) {
+    try {
+      if (fs.existsSync(USER_CONFIG_PATH)) {
+        const cfg = JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"));
+        id = cfg.telegramChannelId || null;
+      }
+    } catch { /* ignore */ }
+  }
+  return id || chatId || null;
+}
+
+/** Send a notification to BOTH the bot DM and the channel (deduplicated). */
+export async function notifyAll(text, type = "info") {
+  if (!TOKEN) return;
+  const channelId = resolveChannelId();
+  const truncated = String(text).slice(0, 4096);
+
+  // Send to DM
+  if (chatId) {
+    try { await postTelegram("sendMessage", { text: truncated }); } catch { /* ignore */ }
+  }
+
+  // Send to channel (skip if same as DM to avoid duplicate)
+  if (channelId && channelId !== chatId) {
+    try {
+      await fetch(`${BASE}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: channelId, text: truncated }),
+      });
+    } catch { /* ignore */ }
+  }
+  log("telegram", `notifyAll: ${truncated.slice(0, 80)}`);
+}
+
 export async function sendToChannel(text, type = "info") {
   if (!TOKEN || _channelNotificationLevel === "off") return;
   if (type === "deploy" && _channelNotificationLevel === "errors") return;
   if (type === "info" && _channelNotificationLevel !== "all") return;
 
-  // Resolve channel ID: env var first, then user-config fallback
-  let channelId = process.env.TELEGRAM_CHANNEL_ID || null;
-  if (!channelId) {
-    try {
-      if (fs.existsSync(USER_CONFIG_PATH)) {
-        const cfg = JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8"));
-        channelId = cfg.telegramChannelId || null;
-      }
-    } catch { /* ignore */ }
-  }
-  // Final fallback to primary chat
-  if (!channelId) channelId = chatId;
+  const channelId = resolveChannelId();
   if (!channelId) {
     log("telegram_warn", "channel not configured — set TELEGRAM_CHANNEL_ID in .env or telegramChannelId in user-config.json");
     return;
   }
 
-  try {
-    await fetch(`${BASE}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: channelId, text: String(text).slice(0, 4096) }),
-    });
-    log("telegram", `channel: ${text.slice(0, 80)}`);
-  } catch { /* ignore */ }
+  const getTelegramSend = (chatId) => fetch(`${BASE}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text: String(text).slice(0, 4096) }),
+  });
+
+  // Send to channel
+  try { await getTelegramSend(channelId); } catch { /* ignore */ }
+  log("telegram", `channel: ${text.slice(0, 80)}`);
+
+  // Mirror to DM if DM is a different chat
+  if (chatId && channelId !== chatId) {
+    try { await getTelegramSend(chatId); } catch { /* ignore */ }
+    log("telegram", `mirror to DM: ${text.slice(0, 80)}`);
+  }
 }
 
 export async function editMessage(text, messageId) {
