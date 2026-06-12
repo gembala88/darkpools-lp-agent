@@ -648,9 +648,16 @@ export async function executeTool(name, args) {
         notifySwap({ inputSymbol: args.input_mint?.slice(0, 8), outputSymbol: args.output_mint === "So11111111111111111111111111111111111111112" || args.output_mint === "SOL" ? "SOL" : args.output_mint?.slice(0, 8), amountIn: result.amount_in, amountOut: result.amount_out, tx: result.tx }).catch(() => {});
       } else if (name === "deploy_position") {
         if (result.dry_run) {
-          log("deploy", `[DRY_RUN] Simulated deploy: ${args.pool_address || args.pool_name} | ${args.amount_y ?? args.amount_sol ?? 0} SOL`);
+          const _name = result.would_deploy?.pool_name || args.pool_name || args.pool_address?.slice(0, 8);
+          const _binStep = result.would_deploy?.bin_step ?? args.bin_step ?? "?";
+          const _activeBin = result.would_deploy?.active_bin ?? "?";
+          const _amount = result.would_deploy?.amount_y ?? args.amount_y ?? args.amount_sol ?? 0;
+          const _lane = args.lane || "?";
+          const _regime = args.regime || "?";
+          const logLine = `[DRY_RUN] Simulated DLMM deploy: ${_name} bin_step=${_binStep} activeBin=${_activeBin} amount=${_amount} SOL lane=${_lane} regime=${_regime} → memory written`;
+          log("deploy", logLine);
           const { sendToChannel } = await import('../telegram.js');
-          sendToChannel("🧪 DRY RUN Deploy: " + (result.would_deploy?.pool_address?.slice(0, 8) || args.pool_address?.slice(0, 8)) + " | " + (args.amount_y ?? args.amount_sol ?? 0) + " SOL (simulated)", "info").catch(() => {});
+          sendToChannel("🧪 " + logLine, "info").catch(() => {});
           // Track in deployment memory as dry_run for self-learning
           try {
             const fs = await import('fs');
@@ -659,7 +666,7 @@ export async function executeTool(name, args) {
             memRaw.deploys.push({
               pool_address: args.pool_address,
               pool_name: args.pool_name,
-              amount_y: args.amount_y ?? args.amount_sol ?? 0,
+              amount_y: _amount,
               strategy: args.strategy,
               bins_below: args.bins_below,
               downside_pct: args.downside_pct,
@@ -669,6 +676,33 @@ export async function executeTool(name, args) {
               dry_run: true,
             });
             fs.writeFileSync(memPath, JSON.stringify(memRaw, null, 2));
+          } catch { /* ignore persistence errors */ }
+          // Also record into deployment-memory.json so the learning engine sees this deploy
+          try {
+            const fs = await import('fs');
+            const deployMemPath = '../data/deployment-memory.json';
+            const deployMemRaw = fs.existsSync(deployMemPath) ? JSON.parse(fs.readFileSync(deployMemPath, 'utf8')) : { deploys: [] };
+            deployMemRaw.deploys.push({
+              poolAddress: args.pool_address,
+              tokenMint: args.base_mint || null,
+              name: args.pool_name || args.pool_address?.slice(0, 8),
+              lane: args.lane || null,
+              regime: args.regime || null,
+              psychology: args.psychology || null,
+              lpAlphaScore: args.lp_alpha_score || null,
+              binStep: args.bin_step || null,
+              activeBin: result.would_deploy?.active_bin ?? null,
+              deployAmountSol: Number(_amount),
+              entryTime: new Date().toISOString(),
+              entryTvl: args.initial_value_usd || null,
+              entryFees: null,
+              entryPrice: null,
+              verdict: "PENDING",
+              dryRun: true,
+              outcome1h: null,
+              outcome4h: null,
+            });
+            fs.writeFileSync(deployMemPath, JSON.stringify(deployMemRaw, null, 2));
           } catch { /* ignore persistence errors */ }
         } else {
           notifyDeploy({ pair: result.pool_name || args.pool_name || args.pool_address?.slice(0, 8), amountSol: args.amount_y ?? args.amount_sol ?? 0, position: result.position, tx: result.txs?.[0] ?? result.tx, priceRange: result.price_range, rangeCoverage: result.range_coverage, binStep: result.bin_step, baseFee: result.base_fee }).catch(() => {});

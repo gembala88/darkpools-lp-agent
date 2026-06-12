@@ -736,6 +736,9 @@ export async function deployPosition({
       dry_run: true,
       would_deploy: {
         pool_address,
+        pool_name: pool_name ?? null,
+        bin_step: actualBinStep,
+        active_bin: activeBin.binId,
         strategy: activeStrategy,
         bins_below: activeBinsBelow,
         bins_above: activeBinsAbove,
