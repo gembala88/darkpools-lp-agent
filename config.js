@@ -151,6 +151,10 @@ export const config = {
     blockedLaunchpads:  u.blockedLaunchpads  ?? [],  // e.g. ["letsbonk.fun", "pump.fun"]
     minTokenAgeHours:   u.minTokenAgeHours   ?? null, // null = no minimum
     maxTokenAgeHours:   u.maxTokenAgeHours   ?? null, // null = no maximum
+    // Source-level discovery filters (pools below these thresholds never enter the candidate list)
+    minTvlDiscovery:    u.minTvlDiscovery    ?? 50_000,  // API-level TVL floor — junk pools filtered at source
+    minVolumeDiscovery: u.minVolumeDiscovery ?? 50_000,  // API-level volume floor
+    discoverySortBy:    u.discoverySortBy    ?? "volume:desc", // sort pools by volume descending at API level
   },
 
   gmgn: {
@@ -381,6 +385,10 @@ export function reloadScreeningThresholds() {
     if (fresh.blockPvpSymbols   !== undefined) s.blockPvpSymbols = fresh.blockPvpSymbols;
     if (fresh.maxBotHoldersPct  != null) s.maxBotHoldersPct = fresh.maxBotHoldersPct;
     if (fresh.allowedLaunchpads !== undefined) s.allowedLaunchpads = fresh.allowedLaunchpads;
+    if (fresh.blockedLaunchpads !== undefined) s.blockedLaunchpads = fresh.blockedLaunchpads;
+    if (fresh.minTvlDiscovery    != null) s.minTvlDiscovery    = fresh.minTvlDiscovery;
+    if (fresh.minVolumeDiscovery != null) s.minVolumeDiscovery = fresh.minVolumeDiscovery;
+    if (fresh.discoverySortBy    != null) s.discoverySortBy    = fresh.discoverySortBy;
     if (fresh.blockedLaunchpads !== undefined) s.blockedLaunchpads = fresh.blockedLaunchpads;
     // Management and risk overrides
     if (fresh.maxPositions != null) config.risk.maxPositions = fresh.maxPositions;

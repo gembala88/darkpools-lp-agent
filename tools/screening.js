@@ -184,12 +184,16 @@ async function fetchDiscordSignalCandidates() {
   return Array.isArray(data?.candidates) ? data.candidates : [];
 }
 
-async function fetchPoolDiscoveryPage({ page_size, filters, timeframe, category }) {
-  const url = `${POOL_DISCOVERY_BASE}/pools?` +
+async function fetchPoolDiscoveryPage({ page_size, filters, timeframe, category, sortBy }) {
+  let url = `${POOL_DISCOVERY_BASE}/pools?` +
     `page_size=${page_size}` +
     `&filter_by=${encodeURIComponent(filters)}` +
     `&timeframe=${timeframe}` +
     `&category=${category}`;
+
+  if (sortBy) {
+    url += `&sort_by=${encodeURIComponent(sortBy)}`;
+  }
 
   const res = await fetch(url);
 
@@ -442,6 +446,7 @@ export async function discoverPools({
     filters,
     timeframe: s.timeframe,
     category: s.category,
+    sortBy: s.discoverySortBy,
   });
 
   let rawPools = Array.isArray(data.data) ? data.data : [];
@@ -574,12 +579,18 @@ export async function discoverPools({
 async function discoverFromMeteora() {
   try {
     const SOL_MINT = "So11111111111111111111111111111111111111112";
-    const filters = ["pool_type=dlmm"].filter(Boolean).join("&&");
+    const s = config.screening;
+    const filters = [
+      "pool_type=dlmm",
+      `tvl>${s.minTvlDiscovery}`,
+      `volume>${s.minVolumeDiscovery}`,
+    ].filter(Boolean).join("&&");
     const data = await fetchPoolDiscoveryPage({
-      page_size: 100,
+      page_size: 50,
       filters,
       timeframe: "24h",
       category: "all",
+      sortBy: s.discoverySortBy,
     });
     const rawPools = Array.isArray(data.data) ? data.data : [];
 
@@ -591,12 +602,13 @@ async function discoverFromMeteora() {
     });
 
     if (rawPools.length === 0) {
-      // Fallback: try the old endpoint with stricter filters
+      // Fallback: try without TVL/volume filters (still sorted)
       const fallback = await fetchPoolDiscoveryPage({
-        page_size: 100,
+        page_size: 50,
         filters: "pool_type=dlmm",
-        timeframe: "1h",
-        category: "trending",
+        timeframe: "24h",
+        category: "all",
+        sortBy: s.discoverySortBy,
       });
       const fbRaw = Array.isArray(fallback.data) ? fallback.data : [];
       const fbSol = fbRaw.filter(p => (p.token_x?.address || "") === SOL_MINT || (p.token_y?.address || "") === SOL_MINT);
