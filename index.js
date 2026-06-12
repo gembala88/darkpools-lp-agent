@@ -11,7 +11,7 @@ import { getTopCandidates } from "./tools/screening.js";
 import { LPIntelligenceService } from "./dist/services/lpIntelligenceService.js";
 import { ConfigManagerService } from "./dist/services/configManagerService.js";
 import { formatGmgnCandidateForPrompt } from "./tools/gmgn.js";
-import { config, reloadScreeningThresholds, computeDeployAmount, lanesConfig, activeLaneSetting, updateActiveLaneSetting } from "./config.js";
+import { config, reloadScreeningThresholds, computeDeployAmount, lanesConfig, activeLaneSetting, updateActiveLaneSetting, screeningContext } from "./config.js";
 import { engines } from "./dist/engines/index.js";
 import { evolveThresholds, getPerformanceSummary } from "./lessons.js";
 import { executeTool, registerCronRestarter } from "./tools/executor.js";
@@ -352,7 +352,7 @@ export async function runManagementCycle({ silent = false } = {}) {
         ].filter(Boolean).join("\n");
       }).join("\n\n");
 
-      const { content } = await agentLoop(`
+    const { content } = await agentLoop(`
 MANAGEMENT ACTION REQUIRED — ${actionPositions.length} position(s)
 
 ${actionBlocks}
@@ -461,7 +461,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
     const isDryRun = process.env.DRY_RUN === 'true';
     const effectiveBalance = isDryRun ? { sol: config.management.dryRunVirtualBalance || 2.0 } : currentBalance;
     const deployAmount = computeDeployAmount(effectiveBalance.sol);
-    log("cron", `Computed deploy amount: ${deployAmount} SOL (wallet: ${effectiveBalance.sol} SOL${isDryRun ? ' virtual' : ''})`);
+    log("cron", `Computed deploy amount: ${deployAmount} SOL (capped by deployAmountSol=${config.management.deployAmountSol})`);
 
     // Load active strategy
     const activeStrategy = getActiveStrategy();
@@ -812,6 +812,16 @@ export async function runScreeningCycle({ silent = false } = {}) {
           log("deploy", `[DRY_RUN] Auto-promote deploy failed: ${e.message}`);
         }
       }
+    }
+
+    // Populate screening context so executor.js fills lane/regime/psychology/lp_alpha_score into AI-chosen deploy records
+    screeningContext.lane = _resolvedLane;
+    screeningContext.regime = _latestRegime;
+    screeningContext.psychology = _latestPsychology;
+    screeningContext.poolScores = {};
+    for (const entry of passing) {
+      const p = entry.pool;
+      if (p?.pool) screeningContext.poolScores[p.pool] = aiMap[p.pool]?.lpAlphaScore ?? null;
     }
 
     const { content } = await agentLoop(`

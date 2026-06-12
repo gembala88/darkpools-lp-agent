@@ -4,6 +4,9 @@ import { getScreeningDefaultsForTimeframe, normalizeTimeframe, scaleScreeningToT
 
 export { REPO_ROOT, repoPath, getScreeningDefaultsForTimeframe, normalizeTimeframe, scaleScreeningToTimeframe, TIMEFRAME_SCREENING_SCALES };
 
+/** Shared screening-cycle context — set by index.js before agentLoop, read by executor.js to fill deploy_position args. */
+export const screeningContext = { lane: null, regime: null, psychology: null, poolScores: {} };
+
 const USER_CONFIG_PATH = repoPath("user-config.json");
 const GMGN_CONFIG_PATH = repoPath("gmgn-config.json");
 const DEFAULT_HIVEMIND_URL = "https://api.agentmeridian.xyz";
@@ -340,7 +343,8 @@ export function computeDeployAmount(walletSol) {
   const deployable = Math.max(0, walletSol - reserve);
   const dynamic    = deployable * pct;
   const result     = Math.min(ceil, Math.max(floor, dynamic));
-  return parseFloat(result.toFixed(2));
+  const capped     = Math.min(result, floor); // Never deploy more than deployAmountSol
+  return parseFloat(capped.toFixed(2));
 }
 
 /**

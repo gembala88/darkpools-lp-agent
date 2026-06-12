@@ -20,7 +20,7 @@ import { addToBlacklist, removeFromBlacklist, listBlacklist } from "../token-bla
 import { blockDev, unblockDev, listBlockedDevs } from "../dev-blocklist.js";
 import { addSmartWallet, removeSmartWallet, listSmartWallets, checkSmartWalletsOnPool } from "../smart-wallets.js";
 import { getTokenInfo, getTokenHolders, getTokenNarrative } from "./token.js";
-import { config, reloadScreeningThresholds, MIN_SAFE_BINS_BELOW } from "../config.js";
+import { config, reloadScreeningThresholds, MIN_SAFE_BINS_BELOW, screeningContext } from "../config.js";
 import { getRecentDecisions } from "../decision-log.js";
 import fs from "fs";
 import { execSync, spawn } from "child_process";
@@ -632,6 +632,17 @@ export async function executeTool(name, args) {
         reason: safetyCheck.reason,
       };
     }
+  }
+
+  // ─── Inject screening context into deploy_position ────────────
+  if (name === "deploy_position") {
+    if (!args.lane) args.lane = screeningContext.lane || null;
+    if (!args.regime) args.regime = screeningContext.regime || null;
+    if (!args.psychology) args.psychology = screeningContext.psychology || null;
+    if (args.pool_address && !args.lp_alpha_score) {
+      args.lp_alpha_score = screeningContext.poolScores?.[args.pool_address] ?? null;
+    }
+    if (!args.deploy_source) args.deploy_source = "ai_chosen";
   }
 
   // ─── Execute ──────────────────────────────
