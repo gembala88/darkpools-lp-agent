@@ -23,6 +23,80 @@ let _warnedMissingAllowedUsers = false;
 // Message ID map for edit mirroring: dmMessageId -> channelMessageId
 const _channelMsgMap = new Map();
 
+// ─── Persistent reply keyboard (DM only) ────────────────────────
+export const REPLY_KEYBOARD = {
+  keyboard: [
+    [{ text: "📊 Status" }, { text: "📈 Positions" }],
+    [{ text: "💰 Wallet" }, { text: "🧠 Learnings" }],
+    [{ text: "⚙️ Settings" }, { text: "❓ Help" }],
+  ],
+  resize_keyboard: true,
+  is_persistent: true,
+};
+
+export const SETTINGS_INLINE_KEYBOARD = {
+  inline_keyboard: [
+    [{ text: "⚙️ Config", callback_data: "cmd:config" }, { text: "🎚️ Filters", callback_data: "cmd:filters" }],
+    [{ text: "🔧 Mode", callback_data: "cmd:mode" }, { text: "🔍 Screen", callback_data: "cmd:screen" }],
+    [{ text: "📋 Candidates", callback_data: "cmd:candidates" }, { text: "🤖 Agent", callback_data: "cmd:agent" }],
+    [{ text: "📅 Briefing", callback_data: "cmd:briefing" }, { text: "🐝 Hive", callback_data: "cmd:hive" }],
+    [{ text: "⏸️ Pause", callback_data: "cmd:pause" }, { text: "▶️ Resume", callback_data: "cmd:resume" }],
+    [{ text: "⬅️ Back", callback_data: "cmd:back" }],
+  ],
+};
+
+/** Send a welcome message in the DM with the persistent reply keyboard. */
+export async function showMainMenu(chatIdOverride) {
+  const target = chatIdOverride || chatId;
+  if (!TOKEN || !target) return;
+  try {
+    await fetch(`${BASE}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: target,
+        text: "🤖 *Darkpools LP Agent* — main menu\n\nTap a button below or type a command.",
+        parse_mode: "Markdown",
+        reply_markup: REPLY_KEYBOARD,
+      }),
+    });
+  } catch (e) {
+    log("telegram_warn", `showMainMenu failed: ${e.message}`);
+  }
+}
+
+/** Show the settings sub-menu as an inline keyboard message. */
+export async function showSettingsSubMenu(chatIdOverride) {
+  const target = chatIdOverride || chatId;
+  if (!TOKEN || !target) return null;
+  try {
+    const res = await fetch(`${BASE}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: target,
+        text: "⚙️ *Settings* — tap to run:",
+        parse_mode: "Markdown",
+        reply_markup: SETTINGS_INLINE_KEYBOARD,
+      }),
+    });
+    return await res.json();
+  } catch (e) {
+    log("telegram_warn", `showSettingsSubMenu failed: ${e.message}`);
+    return null;
+  }
+}
+
+// ─── Button-label → command mapping ────────────────────────────
+export const BUTTON_TO_COMMAND = {
+  "📊 Status": "/status",
+  "📈 Positions": "/positions",
+  "💰 Wallet": "/wallet",
+  "🧠 Learnings": "/learnings",
+  "❓ Help": "/help",
+};
+export const SETTINGS_BUTTON_LABEL = "⚙️ Settings";
+
 function nonEmptyChatId(value) {
   if (value == null) return null;
   const trimmed = String(value).trim();
@@ -174,7 +248,10 @@ async function sendToChat(chatId, method, body) {
 
 export async function sendMessage(text) {
   if (!TOKEN || !chatId) return;
-  return postTelegram("sendMessage", { text: String(text).slice(0, 4096) });
+  return postTelegram("sendMessage", {
+    text: String(text).slice(0, 4096),
+    reply_markup: REPLY_KEYBOARD,
+  });
 }
 
 export async function sendMessageWithButtons(text, inlineKeyboard) {
@@ -203,7 +280,11 @@ export async function sendMessageWithButtons(text, inlineKeyboard) {
 
 export async function sendHTML(html) {
   if (!TOKEN || !chatId) return;
-  return postTelegram("sendMessage", { text: html.slice(0, 4096), parse_mode: "HTML" });
+  return postTelegram("sendMessage", {
+    text: html.slice(0, 4096),
+    parse_mode: "HTML",
+    reply_markup: REPLY_KEYBOARD,
+  });
 }
 
 let _channelNotificationLevel = "all"; // all | deploys | errors | off

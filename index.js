@@ -30,6 +30,10 @@ import {
   notify,
   sendToChannel,
   setChannelNotificationLevel,
+  showMainMenu,
+  showSettingsSubMenu,
+  BUTTON_TO_COMMAND,
+  SETTINGS_BUTTON_LABEL,
 } from "./telegram.js";
 import { generateBriefing } from "./briefing.js";
 import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, getTrackedPositions, setPositionInstruction, updatePnlAndCheckExits, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop } from "./state.js";
@@ -1823,8 +1827,16 @@ async function drainTelegramQueue() {
 }
 
 async function telegramHandler(msg) {
-  const text = msg?.text?.trim();
+  let text = msg?.text?.trim();
   if (!text) return;
+
+  // Map reply-keyboard button taps to their commands
+  if (!msg.isCallback && BUTTON_TO_COMMAND[text]) {
+    text = BUTTON_TO_COMMAND[text];
+  } else if (!msg.isCallback && text === SETTINGS_BUTTON_LABEL) {
+    await showSettingsSubMenu();
+    return;
+  }
 
   if (_pendingInput && !msg.isCallback && !text.startsWith("/")) {
     const { key, page, menuMsgId } = _pendingInput;
@@ -1931,6 +1943,44 @@ async function telegramHandler(msg) {
     return;
   }
 
+  // ── Settings sub-menu callbacks ────────────
+  if (msg?.isCallback && text.startsWith("cmd:")) {
+    const cmdMap = {
+      "cmd:config": "/config",
+      "cmd:filters": "/filters",
+      "cmd:mode": "/mode",
+      "cmd:screen": "/screen",
+      "cmd:candidates": "/candidates",
+      "cmd:agent": "/agent",
+      "cmd:briefing": "/briefing",
+      "cmd:hive": "/hive",
+      "cmd:pause": "/pause",
+      "cmd:resume": "/resume",
+    };
+    const mapped = cmdMap[text];
+    if (mapped) {
+      await answerCallbackQuery(msg.callbackQueryId);
+      // Replace msg.text so downstream command handlers pick it up
+      msg.text = mapped;
+      text = mapped;
+      // Do NOT return — fall through to the command matching below
+    } else if (text === "cmd:back") {
+      await answerCallbackQuery(msg.callbackQueryId);
+      try {
+        // Delete the settings sub-menu message
+        const botToken = process.env.TELEGRAM_BOT_TOKEN;
+        if (botToken) {
+          await fetch(`https://api.telegram.org/bot${botToken}/deleteMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chat_id: msg.chat.id, message_id: msg.messageId }),
+          });
+        }
+      } catch { /* ignore */ }
+      return;
+    }
+  }
+
   // ── Lane command ────────────────────────
   const laneMatch = text.match(/^\/lane\s*(auto|institutional|balanced|moonshot)?$/i);
   if (laneMatch) {
@@ -2008,6 +2058,11 @@ async function telegramHandler(msg) {
     } catch (e) {
       await sendMessage(`Error: ${e.message}`).catch(() => {});
     }
+    return;
+  }
+
+  if (text === "/start") {
+    await showMainMenu();
     return;
   }
 
