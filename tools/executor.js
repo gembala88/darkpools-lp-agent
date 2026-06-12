@@ -653,18 +653,19 @@ export async function executeTool(name, args) {
         notifySwap({ inputSymbol: args.input_mint?.slice(0, 8), outputSymbol: args.output_mint === "So11111111111111111111111111111111111111112" || args.output_mint === "SOL" ? "SOL" : args.output_mint?.slice(0, 8), amountIn: result.amount_in, amountOut: result.amount_out, tx: result.tx }).catch(() => {});
       } else if (name === "deploy_position") {
         if (result.dry_run) {
-          const _name = result.would_deploy?.pool_name || args.pool_name || args.pool_address?.slice(0, 8);
-          const _binStep = result.would_deploy?.bin_step ?? args.bin_step ?? "?";
-          const _activeBin = result.would_deploy?.active_bin ?? "?";
-          const _amount = result.would_deploy?.amount_y ?? args.amount_y ?? args.amount_sol ?? 0;
-          const _lane = args.lane || "?";
-          const _regime = args.regime || "?";
-          log("deploy", `[DRY_RUN] Simulated DLMM deploy: ${_name} bin_step=${_binStep} activeBin=${_activeBin} amount=${_amount} SOL lane=${_lane} regime=${_regime} → writing memory...`);
-          sendToChannel(`🧪 ${_name} dry-run deploy (${_amount} SOL, lane=${_lane})`, "info").catch(() => {});
-          // Write both memory files with absolute paths
-          log("deploy", `[DRY_RUN] building records...`);
-          let memWriteCount = 0;
           try {
+            log("deploy", "[DRY_RUN] entered dry_run block");
+            log("deploy", `[DRY_RUN] result keys: ${Object.keys(result||{}).join(',')} | would_deploy: ${JSON.stringify(result?.would_deploy)}`);
+            const _name = result?.would_deploy?.pool_name || args.pool_name || args.pool_address?.slice(0, 8);
+            const _binStep = result?.would_deploy?.bin_step ?? args.bin_step ?? "?";
+            const _activeBin = result?.would_deploy?.active_bin ?? args.active_bin ?? "?";
+            const _amount = result?.would_deploy?.amount_y ?? args.amount_y ?? args.amount_sol ?? 0;
+            const _lane = args.lane || "?";
+            const _regime = args.regime || "?";
+            log("deploy", `[DRY_RUN] Simulated DLMM deploy: ${_name} bin_step=${_binStep} activeBin=${_activeBin} amount=${_amount} SOL lane=${_lane} regime=${_regime} → writing memory...`);
+            log("deploy", "[DRY_RUN] building records...");
+            // Write both memory files with absolute paths
+            let memWriteCount = 0;
             for (const [label, filePath] of Object.entries({
               'dry-run-memory': ['data', 'dry-run-memory.json'],
               'deployment-memory': ['data', 'deployment-memory.json'],
@@ -712,11 +713,16 @@ export async function executeTool(name, args) {
               log("deploy", `[DRY_RUN] memory write OK: ${absPath}`);
               memWriteCount++;
             }
+            if (memWriteCount > 0) {
+              log("deploy", `[DRY_RUN] Memory written (${memWriteCount}/${2} files)`);
+            }
+            // Notify after write (not before, to avoid early crashes)
+            try {
+              const { sendToChannel } = await import('../telegram.js');
+              sendToChannel(`🧪 ${_name} dry-run deploy (${_amount} SOL, lane=${_lane})`, "info").catch(() => {});
+            } catch (_) {}
           } catch (e) {
-            log("deploy", `[DRY_RUN] MEMORY WRITE CRASHED: ${e.message} | ${e.stack}`);
-          }
-          if (memWriteCount > 0) {
-            log("deploy", `[DRY_RUN] Memory written (${memWriteCount}/${2} files)`);
+            log("deploy", `[DRY_RUN] DRY_RUN BLOCK CRASHED: ${e.message} | ${e.stack}`);
           }
         } else {
           notifyDeploy({ pair: result.pool_name || args.pool_name || args.pool_address?.slice(0, 8), amountSol: args.amount_y ?? args.amount_sol ?? 0, position: result.position, tx: result.txs?.[0] ?? result.tx, priceRange: result.price_range, rangeCoverage: result.range_coverage, binStep: result.bin_step, baseFee: result.base_fee }).catch(() => {});
