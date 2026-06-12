@@ -739,25 +739,30 @@ export async function runScreeningCycle({ silent = false } = {}) {
     // Run here (after evaluation, before LLM loop) so it executes even if the LLM crashes
     if (isDryRun && passing.length > 0) {
       let bestEntry = null;
-      let bestMetric = -1;
+      let bestTvl = -1;
+      const poolRanks = [];
       for (const entry of passing) {
         const pool = entry.pool;
         if (!pool.verified_dlmm) continue;
         const tvl = pool.tvl ?? pool.active_tvl ?? 0;
         const volume = pool.volume_window ?? 0;
-        if (tvl <= 0 && volume <= 0) continue;
-        const stableMetric = tvl + volume * 0.1;
-        if (stableMetric > bestMetric) {
-          bestMetric = stableMetric;
+        if (tvl <= 0 || volume < 500_000) {
+          poolRanks.push(`${pool.name} tvl=$${tvl.toLocaleString()} vol=$${volume.toLocaleString()} (thin)`);
+          continue;
+        }
+        poolRanks.push(`${pool.name} tvl=$${tvl.toLocaleString()} vol=$${volume.toLocaleString()} (candidate)`);
+        if (tvl > bestTvl) {
+          bestTvl = tvl;
           bestEntry = entry;
         }
       }
+      log("deploy", `[DRY_RUN] Auto-promote ranked: ${poolRanks.join(", ")}`);
       if (bestEntry) {
         const pool = bestEntry.pool;
         const tvl = pool.tvl ?? pool.active_tvl ?? 0;
         const volume = pool.volume_window ?? 0;
-        log("deploy", `[DRY_RUN] Auto-promote selecting by stable metric: ${pool.name} volume24h=$${volume.toLocaleString()} tvl=$${tvl.toLocaleString()}`);
-        sendToChannel(`🧪 DRY RUN: Auto-promoting ${pool.name} (vol=$${volume.toLocaleString()})`, "info").catch(() => {});
+        log("deploy", `[DRY_RUN] Auto-promote selected: ${pool.name} tvl=$${tvl.toLocaleString()} vol=$${volume.toLocaleString()}`);
+        sendToChannel(`🧪 DRY RUN: Auto-promoting ${pool.name} (tvl=$${tvl.toLocaleString()} vol=$${volume.toLocaleString()})`, "info").catch(() => {});
         try {
           const deployAmount = computeDeployAmount(effectiveBalance.sol);
           const binsBelow = computeBinsBelow(pool.volatility);
