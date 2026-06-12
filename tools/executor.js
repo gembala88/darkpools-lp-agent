@@ -719,8 +719,8 @@ export async function executeTool(name, args) {
             }
             // Notify after write (not before, to avoid early crashes)
             try {
-              const { sendToChannel } = await import('../telegram.js');
-              sendToChannel(`🧪 ${_name} dry-run deploy (${_amount} SOL, lane=${_lane})`, "info").catch(() => {});
+              const { notify } = await import('../telegram.js');
+              notify(`🧪 ${_name} dry-run deploy (${_amount} SOL, lane=${_lane})`, "info").catch(() => {});
             } catch (_) {}
           } catch (e) {
             log("deploy", `[DRY_RUN] DRY_RUN BLOCK CRASHED: ${e.message} | ${e.stack}`);

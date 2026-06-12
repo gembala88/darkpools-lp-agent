@@ -185,56 +185,54 @@ function resolveChannelId() {
   return id || chatId || null;
 }
 
-/** Send a notification to BOTH the bot DM and the channel (deduplicated). */
-export async function notifyAll(text, type = "info") {
-  if (!TOKEN) return;
-  const channelId = resolveChannelId();
-  const truncated = String(text).slice(0, 4096);
-
-  // Send to DM
-  if (chatId) {
-    try { await postTelegram("sendMessage", { text: truncated }); } catch { /* ignore */ }
-  }
-
-  // Send to channel (skip if same as DM to avoid duplicate)
-  if (channelId && channelId !== chatId) {
-    try {
-      await fetch(`${BASE}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: channelId, text: truncated }),
-      });
-    } catch { /* ignore */ }
-  }
-  log("telegram", `notifyAll: ${truncated.slice(0, 80)}`);
-}
-
-export async function sendToChannel(text, type = "info") {
+/**
+ * Single notification: send to bot DM once, then forward to channel.
+ * DM and channel always show byte-identical "Forwarded from" messages.
+ */
+export async function notify(text, type = "info") {
   if (!TOKEN || _channelNotificationLevel === "off") return;
   if (type === "deploy" && _channelNotificationLevel === "errors") return;
   if (type === "info" && _channelNotificationLevel !== "all") return;
 
-  const channelId = resolveChannelId();
-  if (!channelId) {
-    log("telegram_warn", "channel not configured — set TELEGRAM_CHANNEL_ID in .env or telegramChannelId in user-config.json");
+  if (!chatId) return;
+
+  const truncated = String(text).slice(0, 4096);
+
+  // Send to DM (primary chat)
+  const dmResult = await postTelegram("sendMessage", { text: truncated });
+  if (!dmResult?.result?.message_id) {
+    log("telegram_warn", "notify: DM send returned no message_id");
     return;
   }
 
-  const getTelegramSend = (chatId) => fetch(`${BASE}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text: String(text).slice(0, 4096) }),
-  });
-
-  // Send to channel
-  try { await getTelegramSend(channelId); } catch { /* ignore */ }
-  log("telegram", `channel: ${text.slice(0, 80)}`);
-
-  // Mirror to DM if DM is a different chat
-  if (chatId && channelId !== chatId) {
-    try { await getTelegramSend(chatId); } catch { /* ignore */ }
-    log("telegram", `mirror to DM: ${text.slice(0, 80)}`);
+  // Forward to channel if it differs from DM (skip duplicate)
+  const channelId = resolveChannelId();
+  if (channelId && channelId !== chatId) {
+    try {
+      const res = await fetch(`${BASE}/forwardMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: channelId,
+          from_chat_id: chatId,
+          message_id: dmResult.result.message_id,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        log("telegram_warn", `notify: forward to channel failed (${res.status}): ${err.slice(0, 200)}`);
+      }
+    } catch (e) {
+      log("telegram_warn", `notify: forward to channel failed: ${e.message}`);
+    }
   }
+
+  log("telegram", `notify: ${truncated.slice(0, 80)}`);
+}
+
+/** Deprecated — use notify() instead. Kept for backwards-compat imports. */
+export async function sendToChannel(text, type = "info") {
+  return notify(text, type);
 }
 
 export async function editMessage(text, messageId) {
@@ -550,6 +548,43 @@ export function stopPolling() {
 }
 
 // ─── Notification helpers ────────────────────────────────────────
+/** Send a notification with HTML formatting (forwarded to both DM and channel). */
+async function notifyHTML(html) {
+  if (!TOKEN || _channelNotificationLevel === "off") return;
+  if (!chatId) return;
+
+  const truncated = String(html).slice(0, 4096);
+
+  // Send to DM with HTML parse_mode
+  const dmResult = await postTelegram("sendMessage", { text: truncated, parse_mode: "HTML" });
+  if (!dmResult?.result?.message_id) {
+    log("telegram_warn", "notifyHTML: DM send returned no message_id");
+    return;
+  }
+
+  // Forward to channel if different from DM
+  const channelId = resolveChannelId();
+  if (channelId && channelId !== chatId) {
+    try {
+      const res = await fetch(`${BASE}/forwardMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: channelId,
+          from_chat_id: chatId,
+          message_id: dmResult.result.message_id,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        log("telegram_warn", `notifyHTML: forward to channel failed (${res.status}): ${err.slice(0, 200)}`);
+      }
+    } catch (e) {
+      log("telegram_warn", `notifyHTML: forward to channel failed: ${e.message}`);
+    }
+  }
+}
+
 export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, rangeCoverage, binStep, baseFee }) {
   if (hasActiveLiveMessage()) return;
   const priceStr = priceRange
@@ -561,7 +596,7 @@ export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, 
   const poolStr = (binStep || baseFee)
     ? `Bin step: ${binStep ?? "?"}  |  Base fee: ${baseFee != null ? baseFee + "%" : "?"}\n`
     : "";
-  await sendHTML(
+  await notifyHTML(
     `✅ <b>Deployed</b> ${pair}\n` +
     `Amount: ${amountSol} SOL\n` +
     priceStr +
@@ -575,7 +610,7 @@ export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, 
 export async function notifyClose({ pair, pnlUsd, pnlPct }) {
   if (hasActiveLiveMessage()) return;
   const sign = pnlUsd >= 0 ? "+" : "";
-  await sendHTML(
+  await notifyHTML(
     `🔒 <b>Closed</b> ${pair}\n` +
     `PnL: ${sign}$${(pnlUsd ?? 0).toFixed(2)} (${sign}${(pnlPct ?? 0).toFixed(2)}%)`
   );
@@ -583,7 +618,7 @@ export async function notifyClose({ pair, pnlUsd, pnlPct }) {
 
 export async function notifySwap({ inputSymbol, outputSymbol, amountIn, amountOut, tx }) {
   if (hasActiveLiveMessage()) return;
-  await sendHTML(
+  await notifyHTML(
     `🔄 <b>Swapped</b> ${inputSymbol} → ${outputSymbol}\n` +
     `In: ${amountIn ?? "?"} | Out: ${amountOut ?? "?"}\n` +
     `Tx: <code>${tx?.slice(0, 16)}...</code>`
@@ -592,7 +627,7 @@ export async function notifySwap({ inputSymbol, outputSymbol, amountIn, amountOu
 
 export async function notifyOutOfRange({ pair, minutesOOR }) {
   if (hasActiveLiveMessage()) return;
-  await sendHTML(
+  await notifyHTML(
     `⚠️ <b>Out of Range</b> ${pair}\n` +
     `Been OOR for ${minutesOOR} minutes`
   );

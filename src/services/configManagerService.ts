@@ -329,7 +329,7 @@ Respond in JSON only: {"approved": true/false, "additional": ["suggestion1", "su
     // @ts-expect-error telegram.js is outside src/, no declaration file
     const tg = await import('../../telegram.js');
     const sendMessage = tg.sendMessage;
-    const sendToChannel = tg.sendToChannel;
+    const notify = tg.notify;
 
     const lines: string[] = [];
     lines.push('🤖 Config Manager Update');
@@ -341,7 +341,7 @@ Respond in JSON only: {"approved": true/false, "additional": ["suggestion1", "su
       for (const c of this.currentChanges) {
         lines.push(`- ${c.key}: ${c.from} → ${c.to} (${c.reason})`);
       }
-      sendToChannel(`🤖 Config Manager: ${this.currentChanges.length} changes made`, 'info').catch(() => {});
+      notify(`🤖 Config Manager: ${this.currentChanges.length} changes made`, 'info').catch(() => {});
     }
 
     if (this.noChanges.length > 0) {

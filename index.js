@@ -27,6 +27,7 @@ import {
   notifyOutOfRange,
   isEnabled as telegramEnabled,
   createLiveMessage,
+  notify,
   sendToChannel,
   setChannelNotificationLevel,
 } from "./telegram.js";
@@ -385,7 +386,7 @@ After executing, write a brief one-line result per position.
   } catch (error) {
     log("cron_error", `Management cycle failed: ${error.message}`);
     mgmtReport = `Management cycle failed: ${error.message}`;
-    sendToChannel(`❌ Error: Management cycle failed — ${error.message}`, "errors").catch(() => {});
+    notify(`❌ Error: Management cycle failed — ${error.message}`, "errors").catch(() => {});
   } finally {
     _managementBusy = false;
     if (!silent && telegramEnabled()) {
@@ -486,7 +487,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
     const laneCfg = lanesConfig[_resolvedLane] || lanesConfig.balanced;
     log("cron", `Active lane: ${_resolvedLane} (user setting: ${_activeLane})`);
     if (_resolvedLane !== previousLane && previousLane) {
-      sendToChannel(`🛣️ Lane switched: ${previousLane} → ${_resolvedLane}`, "info").catch(() => {});
+      notify(`🛣️ Lane switched: ${previousLane} → ${_resolvedLane}`, "info").catch(() => {});
     }
 
     // Apply lane overrides to effective config for this cycle
@@ -516,7 +517,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
     const gmgnAllFiltered = topCandidates?.all_filtered ?? [];
 
     if (candidates.length > 0) {
-      sendToChannel(`🔍 Screening: ${candidates.length} candidates found`, "info").catch(() => {});
+      notify(`🔍 Screening: ${candidates.length} candidates found`, "info").catch(() => {});
     }
 
     const allCandidates = [];
@@ -583,7 +584,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
         rejected: combined.slice(0, 5).map((entry) => `${entry.name}: ${entry.reason}`),
       });
       _lastDecision = { decision: "NO_CANDIDATES", pool: null, reason: funnelBlock || combined.slice(0,3).map(e => `${e.name}: ${e.reason}`).join("; "), time: new Date().toISOString(), lane: _resolvedLane };
-      sendToChannel("🔍 Screening: No candidates\nFiltered: " + (combined.slice(0, 3).map(e => `${e.name}: ${e.reason}`).join("\n") || "all filtered before deploy"), "info").catch(() => {});
+      notify("🔍 Screening: No candidates\nFiltered: " + (combined.slice(0, 3).map(e => `${e.name}: ${e.reason}`).join("\n") || "all filtered before deploy"), "info").catch(() => {});
       return screenReport;
     }
 
@@ -621,7 +622,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
           pool_name: candidateName,
         });
         _lastDecision = { decision: "SKIP", pool: candidateName, reason: skipReason, time: new Date().toISOString(), lane: _resolvedLane };
-        sendToChannel("⛔ NO DEPLOY\nBest: " + candidateName + "\nReason: " + skipReason, "info").catch(() => {});
+        notify("⛔ NO DEPLOY\nBest: " + candidateName + "\nReason: " + skipReason, "info").catch(() => {});
         return screenReport;
       }
     }
@@ -770,7 +771,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
         const tvl = pool.tvl ?? pool.active_tvl ?? 0;
         const volume = pool.volume_window ?? 0;
         log("deploy", `[DRY_RUN] Auto-promote selected: ${pool.name} tvl=$${tvl.toLocaleString()} vol=$${volume.toLocaleString()}`);
-        sendToChannel(`🧪 DRY RUN: Auto-promoting ${pool.name} (tvl=$${tvl.toLocaleString()} vol=$${volume.toLocaleString()})`, "info").catch(() => {});
+        notify(`🧪 DRY RUN: Auto-promoting ${pool.name} (tvl=$${tvl.toLocaleString()} vol=$${volume.toLocaleString()})`, "info").catch(() => {});
         try {
           const deployAmount = computeDeployAmount(effectiveBalance.sol);
           const binsBelow = computeBinsBelow(pool.volatility);
@@ -904,7 +905,7 @@ IMPORTANT:
         reason: stripThink(content).slice(0, 500),
       });
       _lastDecision = { decision: "NO_DEPLOY", pool: null, reason: "LLM chose not to deploy", time: new Date().toISOString(), lane: _resolvedLane };
-      sendToChannel("⛔ NO DEPLOY: LLM chose not to deploy any pool", "info").catch(() => {});
+      notify("⛔ NO DEPLOY: LLM chose not to deploy any pool", "info").catch(() => {});
     } else if (!deploySucceeded) {
       appendDecision({
         type: "no_deploy",
@@ -913,20 +914,20 @@ IMPORTANT:
         reason: stripThink(content).slice(0, 500),
       });
       _lastDecision = { decision: "DEPLOY_FAILED", pool: null, reason: deployAttempted ? "Deploy attempt did not succeed" : "No successful deploy", time: new Date().toISOString(), lane: _resolvedLane };
-      if (deployAttempted) sendToChannel("⛔ NO DEPLOY: Deploy attempt did not succeed", "info").catch(() => {});
+      if (deployAttempted) notify("⛔ NO DEPLOY: Deploy attempt did not succeed", "info").catch(() => {});
     } else if (deploySucceeded) {
       _lastDecision = { decision: process.env.DRY_RUN === 'true' ? "DRY_RUN_DEPLOY" : "DEPLOY", pool: _lastDeployPool, reason: process.env.DRY_RUN === 'true' ? "Simulated deploy (DRY RUN)" : "Position deployed successfully", time: new Date().toISOString(), lane: _resolvedLane };
       if (process.env.DRY_RUN === 'true') {
-        sendToChannel("🧪 DRY RUN Deploy: " + (_lastDeployPool || "unknown") + " (simulated)", "info").catch(() => {});
+        notify("🧪 DRY RUN Deploy: " + (_lastDeployPool || "unknown") + " (simulated)", "info").catch(() => {});
       } else {
-        sendToChannel("✅ DEPLOY: Position deployed successfully", "deploy").catch(() => {});
+        notify("✅ DEPLOY: Position deployed successfully", "deploy").catch(() => {});
       }
     }
 
   } catch (error) {
     log("cron_error", `Screening cycle failed: ${error.message}`);
     screenReport = `Screening cycle failed: ${error.message}`;
-    sendToChannel(`❌ Error: Screening cycle failed — ${error.message}`, "errors").catch(() => {});
+    notify(`❌ Error: Screening cycle failed — ${error.message}`, "errors").catch(() => {});
   } finally {
     _screeningBusy = false;
     if (!silent && telegramEnabled()) {
@@ -1854,7 +1855,7 @@ async function telegramHandler(msg) {
         reason: "Telegram /mode toggle dryrun",
       });
       if (result?.success) {
-        sendToChannel(`🔄 DRY RUN toggled: ${isDryRun ? "ON" : "OFF"} → ${newDryRun ? "ON" : "OFF"} by user`, "info").catch(() => {});
+        notify(`🔄 DRY RUN toggled: ${isDryRun ? "ON" : "OFF"} → ${newDryRun ? "ON" : "OFF"} by user`, "info").catch(() => {});
       }
     } else if (action === "toggle_live") {
       await sendHTML("⚠️ DANGER: This enables REAL capital deployment.\n\nType <code>CONFIRM</code> to proceed.").catch(() => {});
@@ -1888,7 +1889,7 @@ async function telegramHandler(msg) {
       });
       if (result?.success) {
         await editMessage("✅ Filters reset to defaults.", msg.messageId);
-        sendToChannel("⚙️ Filters reset to defaults", "info").catch(() => {});
+        notify("⚙️ Filters reset to defaults", "info").catch(() => {});
       }
     }
     return;
@@ -1911,7 +1912,7 @@ async function telegramHandler(msg) {
     if (result?.success) {
       const label = mode.charAt(0).toUpperCase() + mode.slice(1);
       await editMessage(`✅ Risk mode set to ${label}`, msg.messageId);
-      sendToChannel(`🎯 Risk mode changed to ${label}`, "info").catch(() => {});
+      notify(`🎯 Risk mode changed to ${label}`, "info").catch(() => {});
     }
     return;
   }
@@ -2379,7 +2380,7 @@ async function telegramHandler(msg) {
       }
       const oldVal = config.screening[key] ?? config.management[key] ?? config.risk[key] ?? "?";
       await sendMessage(`✅ ${key} updated: ${oldVal} → ${value}`).catch(() => {});
-      sendToChannel(`⚙️ Filter updated: ${key} ${oldVal} → ${value}`, "info").catch(() => {});
+      notify(`⚙️ Filter updated: ${key} ${oldVal} → ${value}`, "info").catch(() => {});
     } catch (e) { await sendMessage(`Error: ${e.message}`).catch(() => {}); }
     return;
   }
@@ -2434,7 +2435,7 @@ async function telegramHandler(msg) {
       });
       if (!result?.success) { await sendMessage("Failed to update model.").catch(() => {}); return; }
       await sendMessage(`✅ Model updated to ${model}. Restart required: /restart`).catch(() => {});
-      sendToChannel(`🔄 Model changed to ${model}`, "info").catch(() => {});
+      notify(`🔄 Model changed to ${model}`, "info").catch(() => {});
     } catch (e) { await sendMessage(`Error: ${e.message}`).catch(() => {}); }
     return;
   }
@@ -2456,7 +2457,7 @@ async function telegramHandler(msg) {
 
   if (text === "/restart") {
     await sendMessage("🔄 Restarting agent...").catch(() => {});
-    sendToChannel("🔄 Agent restarting...", "errors").catch(() => {});
+    notify("🔄 Agent restarting...", "errors").catch(() => {});
     setTimeout(() => process.exit(0), 1000);
     return;
   }
@@ -2598,7 +2599,7 @@ if (isMain && isTTY) {
   maybeRunMissedBriefing().catch(() => { });
 
   startPolling(telegramHandler);
-  setTimeout(() => sendToChannel("🔄 Agent started", "info").catch(() => {}), 5000);
+  setTimeout(() => notify("🔄 Agent started", "info").catch(() => {}), 5000);
 
   console.log(`
 Commands:
@@ -2814,7 +2815,7 @@ Focus on: hold duration, entry/exit timing, what win rates look like, whether sc
   startCronJobs();
   maybeRunMissedBriefing().catch(() => { });
   startPolling(telegramHandler);
-  setTimeout(() => sendToChannel("🔄 Agent started", "info").catch(() => {}), 5000);
+  setTimeout(() => notify("🔄 Agent started", "info").catch(() => {}), 5000);
   (async () => {
     try {
       await runScreeningCycle({ silent: false });

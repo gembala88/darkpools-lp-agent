@@ -148,8 +148,8 @@ export async function checkOutcomes() {
 
           const line = `📊 [SIM] Outcome ${deploy.name}: ${deploy.verdict} | TVLΔ=${(outcome.tvlChange != null ? (outcome.tvlChange * 100).toFixed(1) : '?')}% | fees=$${outcome.feesEarned.toFixed(2)} | source=${deploy.deploySource ?? 'ai_chosen'}`;
           try {
-            const { sendToChannel } = await import('../../telegram.js');
-            sendToChannel(line, "info").catch(() => {});
+            const { notify } = await import('../../telegram.js');
+            notify(line, "info").catch(() => {});
           } catch (_) {}
         } else {
           log("deploy", `[OUTCOME] ${deploy.name} 4h fetch failed — will retry`);
