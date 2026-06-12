@@ -766,6 +766,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
         try {
           const deployAmount = computeDeployAmount(effectiveBalance.sol);
           const binsBelow = computeBinsBelow(pool.volatility);
+          console.log('[DRY_RUN] deploy args:', JSON.stringify({lane: _resolvedLane, regime: _latestRegime, psychology: _latestPsychology, lp_alpha_score: aiMap[pool.pool]?.lpAlphaScore}));
           const result = await executeTool("deploy_position", {
             pool_address: pool.pool,
             amount_y: deployAmount,
