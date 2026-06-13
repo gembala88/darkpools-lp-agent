@@ -161,6 +161,8 @@ export async function evaluateDryRunPositions(currentPositions, managementConfig
 
   const stopLossPct = managementConfig?.stopLossPct ?? -50;
   const takeProfitPct = managementConfig?.takeProfitPct ?? 15;
+  const dryRunSlippagePct = managementConfig?.dryRunSlippagePct ?? 6;
+  const dryRunTxCostPct = 0.1;
 
   const results = [];
   for (const pos of open) {
@@ -200,8 +202,11 @@ export async function evaluateDryRunPositions(currentPositions, managementConfig
         feePct = 5;
       }
     }
-    // Simplified LP PnL approximation: price exposure + fees. Does NOT model impermanent loss / divergence.
-    const simulatedPnlPct = priceChange != null ? priceChange * 100 + feePct : feePct;
+    const pricePct = priceChange != null ? priceChange * 100 : 0;
+    const afterSlippage = pricePct + feePct - dryRunSlippagePct - dryRunTxCostPct;
+    const simulatedPnlPct = priceChange != null ? afterSlippage : feePct;
+
+    log("dry_run_positions", `PnL breakdown for ${pos.pool_name || pos.pool_address?.slice(0, 8)}: price=${pricePct.toFixed(2)}% fees=${feePct.toFixed(2)}% slippage=-${dryRunSlippagePct}% txCost=-${dryRunTxCostPct}% net=${simulatedPnlPct.toFixed(2)}%`);
 
     // Persist computed values onto the stored position
     const data = load();

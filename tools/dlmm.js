@@ -847,6 +847,18 @@ export async function deployPosition({
     totalXLamports = new BN(Math.floor(finalAmountX * Math.pow(10, decimals)));
   }
 
+  // Pre-flight balance check in LIVE mode
+  if (process.env.DRY_RUN !== "true") {
+    const wallet = getWallet();
+    const balance = await getConnection().getBalance(wallet.publicKey);
+    const balanceSol = balance / 1e9;
+    const needed = finalAmountY + (config.management.gasReserve ?? 0.2);
+    if (balanceSol < needed) {
+      throw new Error(`Insufficient SOL balance: ${balanceSol.toFixed(4)} SOL available, need ${needed.toFixed(2)} SOL for deploy (${finalAmountY} + ${config.management.gasReserve ?? 0.2} reserve)`);
+    }
+    log("deploy", `Balance check passed: ${balanceSol.toFixed(4)} SOL ≥ ${needed.toFixed(2)} SOL needed`);
+  }
+
   if (shouldUseLpAgentRelayForDeploy()) {
     try {
       const wallet = getWallet();
@@ -869,7 +881,7 @@ export async function deployPosition({
           percentX: finalAmountX > 0 && finalAmountY > 0 ? 0.5 : 0,
           fromBinId: minBinId,
           toBinId: maxBinId,
-          slippageBps: 500,
+          slippageBps: config.management.liveSlippageBps ?? 300,
           provider: "JUPITER_ULTRA",
         }),
       });
@@ -1026,7 +1038,7 @@ export async function deployPosition({
         totalXAmount: totalXLamports,
         totalYAmount: totalYLamports,
         strategy: { minBinId, maxBinId, strategyType },
-        slippage: 10, // 10%
+        slippage: (config.management.liveSlippageBps ?? 300) / 100,
       });
       const addTxArray = Array.isArray(addTxs) ? addTxs : [addTxs];
       for (let i = 0; i < addTxArray.length; i++) {
@@ -1042,13 +1054,29 @@ export async function deployPosition({
         totalXAmount: totalXLamports,
         totalYAmount: totalYLamports,
         strategy: { maxBinId, minBinId, strategyType },
-        slippage: 1000, // 10% in bps
+        slippage: config.management.liveSlippageBps ?? 300,
       });
       const txHash = await sendAndConfirmTransaction(getConnection(), tx, [wallet, newPosition]);
       txHashes.push(txHash);
     }
 
     log("deploy", `SUCCESS — ${txHashes.length} tx(s): ${txHashes[0]}`);
+
+    // On-chain confirmation check in LIVE mode
+    if (process.env.DRY_RUN !== "true") {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      _positionsCacheAt = 0;
+      const refreshed = await getMyPositions({ force: true, silent: true }).catch(() => null);
+      const confirmed = refreshed?.positions?.find(
+        (p) => p.pool === pool_address && p.lower_bin === minBinId && p.upper_bin === maxBinId,
+      );
+      if (!confirmed) {
+        log("deploy", `WARNING — position in pool ${pool_address?.slice(0, 8)} not found in wallet after deploy. It may appear on next cycle.`);
+      } else {
+        log("deploy", `On-chain confirmed: position ${confirmed.position?.slice(0, 8)} for pool ${pool_address?.slice(0, 8)}`);
+        newPosition = { publicKey: { toString: () => confirmed.position } };
+      }
+    }
 
     _positionsCacheAt = 0;
     const signalSnapshot = config.darwin?.enabled
@@ -1771,7 +1799,7 @@ export async function closePosition({ position_address, reason }) {
             positionId: position_address,
             owner: wallet.publicKey.toString(),
             bps: 10000,
-            slippageBps: 5000,
+            slippageBps: config.management.liveSlippageBps ?? 300,
             output: closeOutput,
             provider: "OKX",
             type: "meteora",
@@ -1789,13 +1817,13 @@ export async function closePosition({ position_address, reason }) {
         const closeSigned = await signAndSimulateRelayTransactions(closeUnsigned, wallet, {
           label: "zap-out close",
           allowedDebitMints: relayAllowedDebitMints,
-          maxSolLoss: 0.05,
+          maxSolLoss: config.management.liveMaxSolLoss ?? 0.05,
           requiredStaticAccounts: [wallet.publicKey.toString(), position_address],
         });
         const swapSigned = await signAndSimulateRelayTransactions(swapUnsigned, wallet, {
           label: "zap-out swap",
           allowedDebitMints: relayAllowedDebitMints,
-          maxSolLoss: 0.05,
+          maxSolLoss: config.management.liveMaxSolLoss ?? 0.05,
           requiredStaticAccounts: [wallet.publicKey.toString()],
         });
 

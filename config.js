@@ -240,6 +240,9 @@ export const config = {
     deployAmountSol:       u.deployAmountSol       ?? 0.5,
     gasReserve:            u.gasReserve            ?? 0.2,
     positionSizePct:       u.positionSizePct       ?? 0.35,
+    dryRunSlippagePct:     u.dryRunSlippagePct     ?? 6,
+    liveSlippageBps:       u.liveSlippageBps       ?? 300,
+    liveMaxSolLoss:        u.liveMaxSolLoss        ?? 0.05,
     // Trailing take-profit
     trailingTakeProfit:    u.trailingTakeProfit    ?? true,
     trailingTriggerPct:    u.trailingTriggerPct    ?? 4,    // activate trailing at X% PnL
@@ -407,6 +410,9 @@ export function reloadScreeningThresholds() {
     if (fresh.stopLossPct != null) config.management.stopLossPct = fresh.stopLossPct;
     if (fresh.deployAmountSol != null) config.management.deployAmountSol = fresh.deployAmountSol;
     if (fresh.gasReserve != null) config.management.gasReserve = fresh.gasReserve;
+    if (fresh.dryRunSlippagePct != null) config.management.dryRunSlippagePct = fresh.dryRunSlippagePct;
+    if (fresh.liveSlippageBps != null) config.management.liveSlippageBps = fresh.liveSlippageBps;
+    if (fresh.liveMaxSolLoss != null) config.management.liveMaxSolLoss = fresh.liveMaxSolLoss;
     if (fresh.positionSizePct != null) config.management.positionSizePct = fresh.positionSizePct;
     if (fresh.minSolToOpen != null) config.management.minSolToOpen = fresh.minSolToOpen;
     if (fresh.maxDeployAmount != null) config.risk.maxDeployAmount = fresh.maxDeployAmount;

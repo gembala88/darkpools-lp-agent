@@ -366,6 +366,9 @@ const toolMap = {
       gasReserve: ["management", "gasReserve"],
       positionSizePct: ["management", "positionSizePct"],
       minAgeBeforeYieldCheck: ["management", "minAgeBeforeYieldCheck"],
+      dryRunSlippagePct: ["management", "dryRunSlippagePct"],
+      liveSlippageBps: ["management", "liveSlippageBps"],
+      liveMaxSolLoss: ["management", "liveMaxSolLoss"],
       // risk
       maxPositions: ["risk", "maxPositions"],
       maxDeployAmount: ["risk", "maxDeployAmount"],
