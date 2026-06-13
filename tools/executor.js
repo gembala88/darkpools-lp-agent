@@ -117,7 +117,7 @@ async function validateDeployPoolThresholds(args) {
 
   // Hard minimum TVL gate — always applied, even in DRY RUN (junk pools rejected outright)
   const isDryRun = process.env.DRY_RUN === "true";
-  const hardMinTvl = isDryRun ? 50_000 : 100_000;
+  const hardMinTvl = isDryRun ? 5_000 : 100_000;
   if (tvl == null) {
     return {
       pass: false,
@@ -722,6 +722,9 @@ export async function executeTool(name, args) {
                 timestamp: new Date().toISOString(),
                 dry_run: true,
                 deploySource: args.deploy_source || "ai_chosen",
+                conviction_score: args.conviction_score ?? null,
+                conviction_reason: args.conviction_reason || null,
+                key_factor: args.key_factor || null,
               };
               const deployRecord = {
                 ...baseRecord,
@@ -776,6 +779,9 @@ export async function executeTool(name, args) {
                 base_mint: args.base_mint,
                 entry_tvl: _entryTvl,
                 entry_pool_price: _entryPoolPrice,
+                conviction_score: args.conviction_score ?? null,
+                conviction_reason: args.conviction_reason || null,
+                key_factor: args.key_factor || null,
               });
               log("deploy", `[DRY_RUN] Position tracked for lifecycle management`);
             } catch (e) {

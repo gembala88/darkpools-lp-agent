@@ -95,6 +95,9 @@ export function trackDryRunPosition({
   base_mint,
   entry_tvl,
   entry_pool_price,
+  conviction_score,
+  conviction_reason,
+  key_factor,
 }) {
   const data = load();
   const position = {
@@ -117,6 +120,9 @@ export function trackDryRunPosition({
     deploy_source: deploy_source || "ai_chosen",
     base_mint: base_mint || null,
     entry_tvl: entry_tvl != null ? Number(entry_tvl) : null,
+    conviction_score: conviction_score != null ? Number(conviction_score) : null,
+    conviction_reason: conviction_reason || null,
+    key_factor: key_factor || null,
     deployed_at: new Date().toISOString(),
     closed_at: null,
     simulated_pnl_pct: null,

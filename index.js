@@ -1312,7 +1312,7 @@ const READ_ONLY_COMMANDS = [
   "/mode", "/filters", "/agent", "/wallet", "/status",
   "/positions", "/help", "/config", "/candidates",
   "/hive", "/channel", "/pool", "/briefing", "/screen",
-  "/setmodel", "/setrpc", "/lane", "/learnings"
+  "/setmodel", "/setrpc", "/lane", "/learnings", "/calibration"
 ];
 
 const _telegramQueue = []; // queued messages received while agent was busy
@@ -2382,6 +2382,39 @@ async function telegramHandler(msg) {
       await sendMessage(lines.join("\n")).catch(() => {});
     } catch (e) {
       await sendMessage(`Error loading learnings: ${e.message}`).catch(() => {});
+    }
+    return;
+  }
+
+  if (text === "/calibration") {
+    try {
+      const memPath = repoPath("data", "deployment-memory.json");
+      if (!fs.existsSync(memPath)) {
+        await sendMessage("No deployment memory found.").catch(() => {});
+        return;
+      }
+      const raw = JSON.parse(fs.readFileSync(memPath, "utf8"));
+      const deploys = raw.deploys || [];
+      const factors = {};
+      for (const d of deploys) {
+        const factor = d.key_factor || "unspecified";
+        if (!factors[factor]) factors[factor] = { wins: 0, losses: 0, total: 0, closed: 0 };
+        factors[factor].total++;
+        if (d.verdict && d.verdict !== "PENDING" && d.verdict !== "ANOMALY") {
+          factors[factor].closed++;
+          if (d.verdict === "PROFIT") factors[factor].wins++;
+          else if (d.verdict === "LOSS") factors[factor].losses++;
+        }
+      }
+      const lines = ["📊 CALIBRATION — Win rate by reasoning factor"];
+      for (const [factor, f] of Object.entries(factors).sort((a, b) => b[1].total - a[1].total)) {
+        const rate = f.closed >= 2 ? `${(f.wins / f.closed * 100).toFixed(0)}%` : "—";
+        lines.push(`• ${factor}: ${f.wins}W/${f.losses}L (${rate}) — ${f.closed}/${f.total} closed`);
+      }
+      if (lines.length === 1) lines.push("No deploy records with conviction data yet.");
+      await sendMessage(lines.join("\n")).catch(() => {});
+    } catch (e) {
+      await sendMessage(`Error loading calibration: ${e.message}`).catch(() => {});
     }
     return;
   }

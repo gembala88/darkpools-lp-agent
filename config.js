@@ -128,9 +128,9 @@ export const config = {
     source:            u.screeningSource    ?? "meteora", // meteora | gmgn
     excludeHighSupplyConcentration: u.excludeHighSupplyConcentration ?? true,
     minFeeActiveTvlRatio: u.minFeeActiveTvlRatio ?? 0.05,
-    minTvl:            u.minTvl            ?? 15_000,
+    minTvl:            u.minTvl            ?? (process.env.DRY_RUN === "true" ? 5_000 : 15_000),
     maxTvl:            u.maxTvl !== undefined ? u.maxTvl : 500_000,
-    minVolume:         u.minVolume         ?? 1_000,
+    minVolume:         u.minVolume         ?? (process.env.DRY_RUN === "true" ? 500 : 1_000),
     minOrganic:        u.minOrganic        ?? 40,
     minQuoteOrganic:   u.minQuoteOrganic   ?? 40,
     minHolders:        u.minHolders        ?? 300,
@@ -140,7 +140,7 @@ export const config = {
     maxBinStep:        u.maxBinStep        ?? 125,
     timeframe:         u.timeframe         ?? "5m",
     category:          u.category          ?? "trending",
-    minTokenFeesSol:   u.minTokenFeesSol   ?? 30,  // global fees paid (priority+jito tips). below = bundled/scam
+    minTokenFeesSol:   u.minTokenFeesSol   ?? (process.env.DRY_RUN === "true" ? 5 : 30),  // global fees paid (priority+jito tips). below = bundled/scam
     useDiscordSignals: u.useDiscordSignals ?? false,
     discordSignalMode: u.discordSignalMode ?? "merge", // merge | only
     avoidPvpSymbols:   u.avoidPvpSymbols   ?? true, // avoid exact-symbol rivals with real active pools
@@ -152,8 +152,8 @@ export const config = {
     minTokenAgeHours:   u.minTokenAgeHours   ?? null, // null = no minimum
     maxTokenAgeHours:   u.maxTokenAgeHours   ?? null, // null = no maximum
     // Source-level discovery filters (pools below these thresholds never enter the candidate list)
-    minTvlDiscovery:    u.minTvlDiscovery    ?? 50_000,  // API-level TVL floor — junk pools filtered at source
-    minVolumeDiscovery: u.minVolumeDiscovery ?? 50_000,  // API-level volume floor
+    minTvlDiscovery:    u.minTvlDiscovery    ?? (process.env.DRY_RUN === "true" ? 15_000 : 50_000),  // API-level TVL floor — junk pools filtered at source
+    minVolumeDiscovery: u.minVolumeDiscovery ?? (process.env.DRY_RUN === "true" ? 15_000 : 50_000),  // API-level volume floor
     discoverySortBy:    u.discoverySortBy    ?? "volume:desc", // sort pools by volume descending at API level
     // Non-Meteora discovery sources (all disabled by default — only Meteora DLMM is deployable)
     enableDexscreener:  u.enableDexscreener  ?? false,
