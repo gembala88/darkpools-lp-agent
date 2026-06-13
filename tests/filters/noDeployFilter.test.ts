@@ -17,6 +17,7 @@ describe('NoDeployFilterV2', () => {
     liquiditySuspicious: false,
     tokenAgeHours: 24,
     marketCap: 500000,
+    dataAvailable: new Set(['transactions', 'fee_data', 'holders', 'liquidity', 'smart_money']),
     ...overrides,
   });
 
@@ -63,10 +64,11 @@ describe('NoDeployFilterV2', () => {
     expect(result.passed).toBe(false);
   });
 
-  it('should reject when buySellScore < 90', () => {
+  it('should NOT reject on buySellScore alone (soft warning only when limited data)', () => {
     const result = filter.evaluate(createCriteria({ buySellScore: 85 }));
-    expect(result.passed).toBe(false);
-    expect(result.rejectReasons[0]).toContain('buySellRatio');
+    // buySellScore is only checked as a soft warning under limited-data conditions
+    expect(result.passed).toBe(true);
+    expect(result.rejectReasons.find(r => r.includes('buySellRatio'))).toBeUndefined();
   });
 
   it('should reject when bundlerScore > 0.3', () => {
@@ -107,6 +109,11 @@ describe('NoDeployFilterV2', () => {
       feeVelocityScore: 0,
     }));
     expect(result.passed).toBe(false);
-    expect(result.rejectReasons.length).toBeGreaterThanOrEqual(3);
+    // With dataAvailable set, txMomentumScore & feeVelocityScore also fire
+    expect(result.rejectReasons.length).toBeGreaterThanOrEqual(4);
+    expect(result.rejectReasons.some(r => r.includes('lpAlphaScore'))).toBe(true);
+    expect(result.rejectReasons.some(r => r.includes('confidence'))).toBe(true);
+    expect(result.rejectReasons.some(r => r.includes('tx momentum'))).toBe(true);
+    expect(result.rejectReasons.some(r => r.includes('fee velocity'))).toBe(true);
   });
 });

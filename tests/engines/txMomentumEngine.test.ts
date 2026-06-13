@@ -36,6 +36,6 @@ describe('TxMomentumEngine', () => {
     const result = await engine.evaluate({ poolAddress: 'momentum_test_pool' });
     expect(result.score).toBeGreaterThan(0);
     expect(['bullish', 'neutral', 'bearish']).toContain(result.signal);
-    expect(result.metadata).toHaveProperty('txVelocity');
+    expect(result.reason).toContain('tx velocity');
   });
 });

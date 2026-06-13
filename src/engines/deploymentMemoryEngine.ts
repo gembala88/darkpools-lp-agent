@@ -17,9 +17,9 @@ function loadDeployHistory(): DeployRecord[] {
       const data = JSON.parse(raw);
       return Array.isArray(data) ? data : [];
     }
-    // Migration: old unified file exists but mode-specific file does not
+    // Migration: old unified file → dry-run file only (live must start empty)
     const oldFile = path.resolve('data/deployment-memory.json');
-    if (fs.existsSync(oldFile) && !fs.existsSync(dataFile)) {
+    if (process.env.DRY_RUN === 'true' && fs.existsSync(oldFile) && !fs.existsSync(dataFile)) {
       const raw = fs.readFileSync(oldFile, 'utf-8');
       const data = JSON.parse(raw);
       if (Array.isArray(data) && data.length > 0) {
