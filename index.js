@@ -35,6 +35,7 @@ import {
   showSettingsSubMenu,
   BUTTON_TO_COMMAND,
   SETTINGS_BUTTON_LABEL,
+  updatePinnedPositions,
 } from "./telegram.js";
 import { generateBriefing } from "./briefing.js";
 import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, getTrackedPositions, setPositionInstruction, updatePnlAndCheckExits, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop } from "./state.js";
@@ -369,6 +370,32 @@ export async function runManagementCycle({ silent = false } = {}) {
       : "no action";
 
     const cur = config.management.solMode ? "◎" : "$";
+
+    // Build pinned positions dashboard (DM only — auto-updates in place)
+    const isDryRunMgmt = process.env.DRY_RUN === 'true';
+    if (isDryRunMgmt && telegramEnabled()) {
+      const openDryRunPins = dryRunPositions.length > 0
+        ? await evaluateDryRunPositions(positions, config.management)
+        : [];
+      const openOnly = openDryRunPins.filter(p => p.closed_at == null);
+      if (openOnly.length > 0) {
+        const pinLines = [`📌 POSISI TERBUKA (${openOnly.length})`];
+        for (const p of openOnly.slice(0, 5)) {
+          const age = p.deployed_at ? Math.round((Date.now() - new Date(p.deployed_at).getTime()) / 60000) : "?";
+          const pnlStr = p.simulated_pnl_pct != null
+            ? (p.simulated_pnl_pct >= 0 ? `🟢 +${p.simulated_pnl_pct.toFixed(1)}%` : `🔻 ${p.simulated_pnl_pct.toFixed(1)}%`)
+            : "⏳";
+          const feeStr = p.simulated_fees != null ? `$${p.simulated_fees.toFixed(2)}` : "?";
+          pinLines.push(`🧪 ${p.pool_name || p.pool_address?.slice(0, 8)} | ${p.amount_y} SOL | ${age}m`);
+          pinLines.push(`   PnL: ${pnlStr} | Fees: ${feeStr}`);
+        }
+        if (openOnly.length > 5) pinLines.push(`… dan ${openOnly.length - 5} lagi`);
+        await updatePinnedPositions(pinLines.join("\n"));
+      } else {
+        await updatePinnedPositions(""); // idle message
+      }
+    }
+
     const dryRunReport = dryRunReportLines.length > 0 ? "\n\n🧪 DRY RUN Positions:\n" + dryRunReportLines.join("\n") : "";
     mgmtReport = reportLines.join("\n\n") +
       dryRunReport +

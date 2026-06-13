@@ -924,6 +924,46 @@ export async function notifyOutOfRange({ pair, minutesOOR }) {
   );
 }
 
+// ─── Pinned Position Dashboard (DM only) ─────────────────────────
+let _pinnedPositionMsgId = null;
+let _pinnedPositionLastText = null;
+const PINNED_IDLE_TEXT = "📭 Tidak ada posisi terbuka";
+
+export async function updatePinnedPositions(text) {
+  if (!TOKEN || !chatId) return;
+  const effectiveText = text ? String(text).slice(0, 4000) : PINNED_IDLE_TEXT;
+
+  if (effectiveText === _pinnedPositionLastText) return; // skip identical
+
+  if (_pinnedPositionMsgId) {
+    const result = await postTelegram("editMessageText", {
+      message_id: _pinnedPositionMsgId,
+      text: effectiveText,
+    });
+    if (result) {
+      _pinnedPositionLastText = effectiveText;
+      return;
+    }
+    // Edit failed (message deleted or bot can't edit) — fall through to re-send
+    _pinnedPositionMsgId = null;
+    _pinnedPositionLastText = null;
+  }
+
+  // Send fresh, pin it
+  const sent = await postTelegram("sendMessage", {
+    text: effectiveText,
+    disable_notification: true,
+  });
+  if (sent?.ok && sent?.result?.message_id) {
+    _pinnedPositionMsgId = sent.result.message_id;
+    _pinnedPositionLastText = effectiveText;
+    await postTelegram("pinChatMessage", {
+      message_id: _pinnedPositionMsgId,
+      disable_notification: true,
+    });
+  }
+}
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
