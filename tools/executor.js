@@ -42,6 +42,7 @@ const TIMEFRAME_MINUTES = {
 };
 import { log, logAction } from "../logger.js";
 import { notifyDeploy, notifyClose, notifySwap } from "../telegram.js";
+import { trackDryRunPosition } from "./dryRunPositions.js";
 
 const SENSITIVE_CONFIG_KEYS = new Set([
   "gmgnApiKey",
@@ -739,6 +740,31 @@ export async function executeTool(name, args) {
             }
             if (memWriteCount > 0) {
               log("deploy", `[DRY_RUN] Memory written (${memWriteCount}/${2} files)`);
+            }
+            // Track dry-run position for management/evaluation
+            try {
+              trackDryRunPosition({
+                pool_address: args.pool_address,
+                pool_name: args.pool_name,
+                amount_y: _amount,
+                strategy: args.strategy,
+                bins_below: args.bins_below,
+                bins_above: args.bins_above,
+                active_bin: result?.would_deploy?.active_bin ?? _activeBin ?? null,
+                bin_step: _binStep,
+                active_price: result?.would_deploy?.active_price ?? null,
+                volatility: args.volatility,
+                lane: _lane,
+                regime: _regime,
+                psychology: args.psychology,
+                lp_alpha_score: args.lp_alpha_score,
+                deploy_source: args.deploy_source || "ai_chosen",
+                base_mint: args.base_mint,
+                entry_tvl: _entryTvl,
+              });
+              log("deploy", `[DRY_RUN] Position tracked for lifecycle management`);
+            } catch (e) {
+              log("deploy", `[DRY_RUN] trackDryRunPosition failed: ${e.message}`);
             }
             // Notify after write (not before, to avoid early crashes)
             try {

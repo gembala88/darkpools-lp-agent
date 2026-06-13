@@ -46,6 +46,13 @@ import { stageSignals } from "./signal-tracker.js";
 import { getWeightsSummary } from "./signal-weights.js";
 import { bootstrapHiveMind, ensureAgentId, getHiveMindPullMode, isHiveMindEnabled, pullHiveMindLessons, pullHiveMindPresets, registerHiveMindAgent, startHiveMindBackgroundSync } from "./hivemind.js";
 import { appendDecision } from "./decision-log.js";
+import {
+  getDryRunPositions,
+  closeDryRunPosition,
+  getDryRunPositionsSummary,
+  evaluateDryRunPositions,
+  trackDryRunPosition,
+} from "./tools/dryRunPositions.js";
 
 import { REPO_ROOT, repoPath } from "./repo-root.js";
 
@@ -245,7 +252,17 @@ export async function runManagementCycle({ silent = false } = {}) {
     const livePositions = await getMyPositions({ force: true }).catch(() => null);
     positions = livePositions?.positions || [];
 
-    if (positions.length === 0) {
+    // DRY RUN: load dry-run positions if no chain positions
+    const isDryRun = process.env.DRY_RUN === 'true';
+    let dryRunPositions = [];
+    if (positions.length === 0 && isDryRun) {
+      dryRunPositions = getDryRunPositions();
+      if (dryRunPositions.length > 0) {
+        log("cron", `DRY RUN: ${dryRunPositions.length} simulated positions tracked — using for management report`);
+      }
+    }
+
+    if (positions.length === 0 && dryRunPositions.length === 0) {
       log("cron", "No open positions — triggering screening cycle");
       mgmtReport = "No open positions. Triggering screening cycle.";
       runScreeningCycle().catch((e) => log("cron_error", `Triggered screening failed: ${e.message}`));
@@ -309,6 +326,16 @@ export async function runManagementCycle({ silent = false } = {}) {
       actionMap.set(p.position, { action: "STAY" });
     }
 
+    // DRY RUN: evaluate and report simulated positions
+    let dryRunReportLines = [];
+    if (dryRunPositions.length > 0) {
+      const evaluated = evaluateDryRunPositions(positions);
+      dryRunReportLines = evaluated.map((p, i) => {
+        const age = p.deployed_at ? Math.round((Date.now() - new Date(p.deployed_at).getTime()) / 60000) : "?";
+        return `🧪 ${p.pool_name || p.pool_address?.slice(0, 8)} | ${p.amount_y} SOL | ${age}m | TVL: $${p.entry_tvl?.toLocaleString() || "?"} | Sim PnL: ${p.simulated_pnl_pct != null ? p.simulated_pnl_pct + "%" : "awaiting data"} | Fees: ${p.simulated_fees != null ? "$" + p.simulated_fees.toFixed(2) : "?"} | ${p.status === "no_data" ? "⏳ pool not on chain" : "🟢 tracking"}`;
+      });
+    }
+
     // ── Build JS report ──────────────────────────────────────────────
     const totalValue = positionData.reduce((s, p) => s + (p.total_value_usd ?? 0), 0);
     const totalUnclaimed = positionData.reduce((s, p) => s + (p.unclaimed_fees_usd ?? 0), 0);
@@ -333,7 +360,9 @@ export async function runManagementCycle({ silent = false } = {}) {
       : "no action";
 
     const cur = config.management.solMode ? "◎" : "$";
+    const dryRunReport = dryRunReportLines.length > 0 ? "\n\n🧪 DRY RUN Positions:\n" + dryRunReportLines.join("\n") : "";
     mgmtReport = reportLines.join("\n\n") +
+      dryRunReport +
       `\n\nSummary: 💼 ${positions.length} positions | ${cur}${totalValue.toFixed(4)} | fees: ${cur}${totalUnclaimed.toFixed(4)} | ${actionSummary}`;
 
     // ── Call LLM only if action needed ──────────────────────────────
@@ -2092,15 +2121,28 @@ async function telegramHandler(msg) {
   if (text === "/positions") {
     try {
       const { positions, total_positions } = await getMyPositions({ force: true });
-      if (total_positions === 0) { await sendMessage("No open positions."); return; }
+      const isDryRun = process.env.DRY_RUN === 'true';
+      const drPositions = isDryRun ? getDryRunPositions() : [];
       const cur = config.management.solMode ? "◎" : "$";
-      const lines = positions.map((p, i) => {
-        const pnl = p.pnl_usd >= 0 ? `+${cur}${p.pnl_usd}` : `-${cur}${Math.abs(p.pnl_usd)}`;
-        const age = p.age_minutes != null ? `${p.age_minutes}m` : "?";
-        const oor = !p.in_range ? " ⚠️OOR" : "";
-        return `${i + 1}. ${p.pair} | ${cur}${p.total_value_usd} | PnL: ${pnl} | fees: ${cur}${p.unclaimed_fees_usd} | ${age}${oor}`;
-      });
-      await sendMessage(`📊 Open Positions (${total_positions}):\n\n${lines.join("\n")}\n\n/close <n> to close | /set <n> <note> to set instruction`);
+      const lines = [];
+      if (total_positions > 0) {
+        positions.map((p, i) => {
+          const pnl = p.pnl_usd >= 0 ? `+${cur}${p.pnl_usd}` : `-${cur}${Math.abs(p.pnl_usd)}`;
+          const age = p.age_minutes != null ? `${p.age_minutes}m` : "?";
+          const oor = !p.in_range ? " ⚠️OOR" : "";
+          lines.push(`${i + 1}. ${p.pair} | ${cur}${p.total_value_usd} | PnL: ${pnl} | fees: ${cur}${p.unclaimed_fees_usd} | ${age}${oor}`);
+        });
+      }
+      if (drPositions.length > 0) {
+        if (lines.length > 0) lines.push("");
+        lines.push(`🧪 DRY RUN Positions (${drPositions.length}):`);
+        for (const p of drPositions) {
+          const age = p.deployed_at ? Math.round((Date.now() - new Date(p.deployed_at).getTime()) / 60000) : "?";
+          lines.push(`  ${p.pool_name || p.pool_address?.slice(0, 8)} | ${p.amount_y} SOL | ${age}m | TVL: $${p.entry_tvl?.toLocaleString() || "?"} | Sim PnL: ${p.simulated_pnl_pct != null ? p.simulated_pnl_pct + "%" : "awaiting data"}`);
+        }
+      }
+      if (lines.length === 0) { await sendMessage("No open positions."); return; }
+      await sendMessage(`📊 Open Positions (${total_positions + drPositions.length}):\n\n${lines.join("\n")}\n\n/close <n> to close | /set <n> <note> to set instruction`);
     } catch (e) { await sendMessage(`Error: ${e.message}`).catch(() => {}); }
     return;
   }
@@ -2168,16 +2210,30 @@ async function telegramHandler(msg) {
     try {
       const idx = parseInt(closeMatch[1]) - 1;
       const { positions } = await getMyPositions({ force: true });
-      if (idx < 0 || idx >= positions.length) { await sendMessage("Invalid number. Use /positions first."); return; }
-      const pos = positions[idx];
-      await sendMessage(`Closing ${pos.pair}...`);
-      const result = await closePosition({ position_address: pos.position });
-      if (result.success) {
-        const closeTxs = result.close_txs?.length ? result.close_txs : result.txs;
-        const claimNote = result.claim_txs?.length ? `\nClaim txs: ${result.claim_txs.join(", ")}` : "";
-        await sendMessage(`✅ Closed ${pos.pair}\nPnL: ${config.management.solMode ? "◎" : "$"}${result.pnl_usd ?? "?"} | close txs: ${closeTxs?.join(", ") || "n/a"}${claimNote}`);
+      const isDryRun = process.env.DRY_RUN === 'true';
+      const drPositions = isDryRun ? getDryRunPositions() : [];
+      if (idx >= 0 && idx < positions.length) {
+        const pos = positions[idx];
+        await sendMessage(`Closing ${pos.pair}...`);
+        const result = await closePosition({ position_address: pos.position });
+        if (result.success) {
+          const closeTxs = result.close_txs?.length ? result.close_txs : result.txs;
+          const claimNote = result.claim_txs?.length ? `\nClaim txs: ${result.claim_txs.join(", ")}` : "";
+          await sendMessage(`✅ Closed ${pos.pair}\nPnL: ${config.management.solMode ? "◎" : "$"}${result.pnl_usd ?? "?"} | close txs: ${closeTxs?.join(", ") || "n/a"}${claimNote}`);
+        } else {
+          await sendMessage(`❌ Close failed: ${JSON.stringify(result)}`);
+        }
+      } else if (isDryRun && idx >= positions.length && idx < positions.length + drPositions.length) {
+        const drIdx = idx - positions.length;
+        const drPos = drPositions[drIdx];
+        const closed = closeDryRunPosition(drPos.id, { reason: "manual" });
+        if (closed) {
+          await sendMessage(`🧪 Dry-run position ${drPos.pool_name || drPos.pool_address?.slice(0, 8)} closed.`);
+        } else {
+          await sendMessage(`❌ Failed to close dry-run position.`);
+        }
       } else {
-        await sendMessage(`❌ Close failed: ${JSON.stringify(result)}`);
+        await sendMessage("Invalid number. Use /positions first.");
       }
     } catch (e) { await sendMessage(`Error: ${e.message}`).catch(() => {}); }
     return;

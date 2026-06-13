@@ -79,15 +79,21 @@ let _connection = null;
 let _wallet = null;
 let _workingRpcIndex = 0;
 
+const RPC_FALLBACK_URLS_ENV = (process.env.RPC_FALLBACK_URLS || "")
+  .split(",")
+  .map(s => s.trim())
+  .filter(Boolean);
 const RPC_FALLBACKS = [
+  ...RPC_FALLBACK_URLS_ENV,
   process.env.RPC_URL,
   "https://api.mainnet-beta.solana.com",
   "https://rpc.ankr.com/solana",
 ].filter(Boolean).filter(url => !url.includes('helius'));
+const RPC_FALLBACKS_UNIQUE = [...new Set(RPC_FALLBACKS)];
 
 function getConnection() {
   if (!_connection) {
-    const url = RPC_FALLBACKS[_workingRpcIndex] || RPC_FALLBACKS[0];
+    const url = RPC_FALLBACKS_UNIQUE[_workingRpcIndex] || RPC_FALLBACKS_UNIQUE[0];
     if (_workingRpcIndex > 0) log("rpc", `using fallback ${_workingRpcIndex}: ${url}`);
     _connection = new Connection(url, "confirmed");
   }
@@ -97,8 +103,8 @@ function getConnection() {
 function rotateRpc() {
   _connection = null;
   poolCache.clear();
-  _workingRpcIndex = (_workingRpcIndex + 1) % RPC_FALLBACKS.length;
-  const url = RPC_FALLBACKS[_workingRpcIndex];
+  _workingRpcIndex = (_workingRpcIndex + 1) % RPC_FALLBACKS_UNIQUE.length;
+  const url = RPC_FALLBACKS_UNIQUE[_workingRpcIndex];
   log("rpc", `rotated to RPC ${_workingRpcIndex}: ${url}`);
 }
 
@@ -567,9 +573,41 @@ async function getPoolMetadata(poolAddress) {
   }
 }
 
-// ─── Get Active Bin ────────────────────────────────────────────
+// ─── Active Bin Cache (30s TTL per pool) ───────────────────────
+const _activeBinCache = new Map();
+const ACTIVE_BIN_CACHE_TTL_MS = 30_000;
+
+function getActiveBinCacheKey(poolAddress) {
+  return String(poolAddress);
+}
+
+function getCachedActiveBin(poolAddress) {
+  const key = getActiveBinCacheKey(poolAddress);
+  const entry = _activeBinCache.get(key);
+  if (entry && Date.now() - entry.ts < ACTIVE_BIN_CACHE_TTL_MS) {
+    return entry.value;
+  }
+  _activeBinCache.delete(key);
+  return null;
+}
+
+function setCachedActiveBin(poolAddress, value) {
+  const key = getActiveBinCacheKey(poolAddress);
+  _activeBinCache.set(key, { value, ts: Date.now() });
+}
+
+const RPC_BACKOFF_DELAYS = [500, 1000, 2000]; // ms between retries
+
 export async function getActiveBin({ pool_address }) {
   pool_address = normalizeMint(pool_address);
+
+  // Return cached value if fresh
+  const cached = getCachedActiveBin(pool_address);
+  if (cached) {
+    log("rpc", `getActiveBin ${pool_address.slice(0, 8)} — using 30s cache`);
+    return cached;
+  }
+
   let lastError;
 
   // Skip non-Meteora pools (Raydium, Orca, etc.) — only DLMM program pools are supported
@@ -583,24 +621,31 @@ export async function getActiveBin({ pool_address }) {
     }
   } catch { /* owner check failed — proceed with DLMM SDK attempt */ }
 
-  for (let attempt = 0; attempt < RPC_FALLBACKS.length; attempt++) {
+  for (let attempt = 0; attempt < Math.max(RPC_FALLBACKS_UNIQUE.length, 3); attempt++) {
     try {
       if (attempt > 0) rotateRpc();
       const pool = await getPool(pool_address);
-      const activeBin = await pool.getActiveBin();
+  const activeBin = await getActiveBin({ pool_address });
 
-      return {
+      const result = {
         binId: activeBin.binId,
         price: pool.fromPricePerLamport(Number(activeBin.price)),
         pricePerLamport: activeBin.price.toString(),
       };
+
+      setCachedActiveBin(pool_address, result);
+      return result;
     } catch (err) {
       lastError = err;
-      log("rpc", `getActiveBin attempt ${attempt + 1} failed: ${err.message || err}`);
+      const delayMs = RPC_BACKOFF_DELAYS[Math.min(attempt, RPC_BACKOFF_DELAYS.length - 1)];
+      log("rpc", `getActiveBin attempt ${attempt + 1} failed: ${err.message || err} — retrying in ${delayMs}ms`);
+      if (attempt < Math.max(RPC_FALLBACKS_UNIQUE.length, 3) - 1) {
+        await new Promise(r => setTimeout(r, delayMs));
+      }
     }
   }
 
-  throw lastError || new Error(`getActiveBin failed after ${RPC_FALLBACKS.length} attempts`);
+  throw lastError || new Error(`getActiveBin failed after all retries`);
 }
 
 // ─── Deploy Position ───────────────────────────────────────────
