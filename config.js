@@ -272,7 +272,7 @@ export const config = {
   llm: {
     temperature: u.temperature ?? 0.373,
     maxTokens:   u.maxTokens   ?? 4096,
-    maxSteps:    u.maxSteps    ?? 25,
+    maxSteps:    u.maxSteps    ?? 10,
     managementModel: u.managementModel ?? process.env.LLM_MODEL ?? "openrouter/healer-alpha",
     screeningModel:  u.screeningModel  ?? process.env.LLM_MODEL ?? "openrouter/hunter-alpha",
     generalModel:    u.generalModel    ?? process.env.LLM_MODEL ?? "openrouter/healer-alpha",
@@ -416,6 +416,7 @@ export function reloadScreeningThresholds() {
     if (fresh.positionSizePct != null) config.management.positionSizePct = fresh.positionSizePct;
     if (fresh.minSolToOpen != null) config.management.minSolToOpen = fresh.minSolToOpen;
     if (fresh.maxDeployAmount != null) config.risk.maxDeployAmount = fresh.maxDeployAmount;
+    if (fresh.maxSteps != null) config.llm.maxSteps = fresh.maxSteps;
     const minBinsBelow = numericConfig(fresh.minBinsBelow) ?? config.strategy.minBinsBelow;
     const maxBinsBelow = numericConfig(fresh.maxBinsBelow) ?? numericConfig(fresh.binsBelow) ?? config.strategy.maxBinsBelow;
     const defaultBinsBelow = numericConfig(fresh.defaultBinsBelow) ?? numericConfig(fresh.binsBelow) ?? config.strategy.defaultBinsBelow ?? maxBinsBelow;

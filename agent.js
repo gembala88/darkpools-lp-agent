@@ -150,11 +150,60 @@ function isThinkingModeToolChoiceError(error) {
   return /thinking mode does not support/i.test(message) && /tool_choice/i.test(message);
 }
 
+function truncateContent(str, maxLen = 2000) {
+  if (!str || str.length <= maxLen) return str;
+  return str.slice(0, maxLen) + "...[truncated]";
+}
+
+function truncateToolResult(result, maxLen = 2000) {
+  if (result == null) return result;
+  if (typeof result === "string") return truncateContent(result, maxLen);
+  if (typeof result === "object") {
+    const copy = Array.isArray(result) ? [] : {};
+    for (const [k, v] of Object.entries(result)) {
+      if (typeof v === "string" && v.length > maxLen) {
+        copy[k] = truncateContent(v, maxLen);
+      } else if (Array.isArray(v) && v.length > 20) {
+        copy[k] = v.slice(0, 20);
+        copy[k + "_count"] = v.length;
+        copy[k + "_truncated"] = true;
+      } else if (typeof v === "object" && v !== null) {
+        copy[k] = truncateToolResult(v, maxLen);
+      } else {
+        copy[k] = v;
+      }
+    }
+    return copy;
+  }
+  return result;
+}
+
+function trimMessages(messages, maxMessages = 12) {
+  if (messages.length <= maxMessages) return messages;
+  // Always keep system prompt (index 0) and the user goal (index 1 or first user message)
+  const systemIdx = 0;
+  // Find first user message as the goal
+  let goalIdx = 1;
+  for (let i = 1; i < messages.length; i++) {
+    if (messages[i].role === "user") { goalIdx = i; break; }
+  }
+  // Keep last N-2 messages (system + goal are fixed)
+  const keepTail = maxMessages - 2;
+  const tailStart = Math.max(goalIdx + 1, messages.length - keepTail);
+  const trimmed = [messages[systemIdx], messages[goalIdx], ...messages.slice(tailStart)];
+  const dropped = messages.length - trimmed.length;
+  trimmed.splice(2, 0, {
+    role: "system",
+    content: `[${dropped} intermediate steps trimmed to fit context window. The analysis is still in progress — continue from where you left off.]`,
+  });
+  return trimmed;
+}
+
 /**
  * Core ReAct agent loop.
  *
  * @param {string} goal - The task description for the agent
- * @param {number} maxSteps - Safety limit on iterations (default 20)
+ * @param {number} maxSteps - Safety limit on iterations
  * @returns {string} - The agent's final text response
  */
 export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHistory = [], agentType = "GENERAL", model = null, maxOutputTokens = null, options = {}) {
@@ -209,6 +258,8 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           if (hasNvidiaKeys) client.apiKey = getActiveKey();
+          // Context window trim — keep messages bounded to prevent overflow
+          messages = trimMessages(messages);
           const reqParams = {
             model: usedModel,
             messages,
@@ -271,8 +322,30 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
       }
 
       if (!response?.choices?.length) {
-        log("error", `Bad API response: ${(response ? JSON.stringify(response) : 'undefined').slice(0, 200)}`);
-        throw new Error(`API returned no choices: ${response?.error?.message || (response ? JSON.stringify(response) : 'undefined response')}`);
+        log("error", `API returned no choices at step ${step}: ${(response ? JSON.stringify(response) : 'undefined').slice(0, 200)}`);
+        if (step === 0 || messages.length <= 2) {
+          throw new Error(`API returned no choices: ${response?.error?.message || (response ? JSON.stringify(response) : 'undefined response')}`);
+        }
+        // Context overflow — trim aggressively and retry once before giving up
+        const before = messages.length;
+        messages = trimMessages(messages, 6);
+        log("agent", `No choices — trimmed context from ${before} to ${messages.length} messages, retrying once`);
+        try {
+          const retryParams = {
+            model: usedModel,
+            messages,
+            tools: getToolsForRole(agentType, goal),
+            temperature: config.llm.temperature,
+            max_tokens: maxOutputTokens ?? config.llm.maxTokens,
+          };
+          if (!omitToolChoice) retryParams.tool_choice = toolChoice;
+          response = await client.chat.completions.create(retryParams);
+        } catch { /* fall through */ }
+        if (!response?.choices?.length) {
+          log("agent", "No choices after context trim — finalizing cycle cleanly");
+          await onToolFinish?.({ name: "__finalize__", args: {}, result: { skipped: true, reason: "Context limit reached — could not complete analysis" }, success: true, step });
+          return { content: "NO DEPLOY — could not complete analysis (context limit). Will retry next cycle with fresh context.", userMessage: goal };
+        }
       }
       const msg = response.choices[0].message;
       // Repair malformed tool call JSON before pushing to history —
@@ -358,7 +431,7 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
           return {
             role: "tool",
             tool_call_id: toolCall.id,
-            content: JSON.stringify({ blocked: true, reason: `${functionName} already attempted this session — do not retry. If it failed, report the error and stop.` }),
+            content: JSON.stringify(truncateToolResult({ blocked: true, reason: `${functionName} already attempted this session — do not retry. If it failed, report the error and stop.` })),
           };
         }
 
@@ -380,7 +453,7 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
         return {
           role: "tool",
           tool_call_id: toolCall.id,
-          content: JSON.stringify(result),
+          content: JSON.stringify(truncateToolResult(result)),
         };
       }));
 
