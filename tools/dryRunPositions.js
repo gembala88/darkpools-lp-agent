@@ -4,6 +4,28 @@ import { repoPath } from "../repo-root.js";
 
 const DRY_RUN_POSITIONS_FILE = repoPath("data", "dry-run-positions.json");
 const POOL_DISCOVERY_BASE = "https://pool-discovery-api.datapi.meteora.ag";
+const SOL_MINT = "So11111111111111111111111111111111111111112";
+let _solPriceCache = { price: 0, ts: 0 };
+const SOL_PRICE_CACHE_TTL_MS = 60_000;
+
+async function fetchSolPriceUsd() {
+  if (Date.now() - _solPriceCache.ts < SOL_PRICE_CACHE_TTL_MS) return _solPriceCache.price;
+  try {
+    const res = await fetch(`https://api.jup.ag/price/v2?ids=${SOL_MINT}`, { signal: AbortSignal.timeout(5000) });
+    if (res.ok) {
+      const body = await res.json();
+      const price = Number(body?.data?.[SOL_MINT]?.price ?? 0);
+      if (price > 0) {
+        _solPriceCache = { price, ts: Date.now() };
+        return price;
+      }
+    }
+  } catch (e) {
+    log("dry_run_positions", `fetchSolPriceUsd error: ${e.message}`);
+  }
+  // Fallback: use last cached value even if stale, or 0
+  return _solPriceCache.price || 0;
+}
 
 async function fetchPoolState(poolAddress) {
   try {
@@ -167,7 +189,19 @@ export async function evaluateDryRunPositions(currentPositions, managementConfig
     }
 
     const feesUsd = estimateFees(state, Math.max(holdingHours, 0.0833));
-    const simulatedPnlPct = priceChange != null ? priceChange * 100 + (feesUsd > 0 ? (feesUsd / (pos.amount_y || 0.12)) * 100 : 0) : 0;
+    // Convert SOL position amount to USD for fee pct (both parties in USD)
+    const solPriceUsd = await fetchSolPriceUsd();
+    const positionValueUsd = solPriceUsd > 0 ? (pos.amount_y || 0.12) * solPriceUsd : 0;
+    let feePct = 0;
+    if (feesUsd > 0 && positionValueUsd > 0) {
+      feePct = (feesUsd / positionValueUsd) * 100;
+      if (feePct > 50) {
+        log("dry_run_positions", `fee_pct ${feePct.toFixed(1)}% suspiciously high for ${pos.pool_name || pos.pool_address?.slice(0, 8)} — capping at 5%`);
+        feePct = 5;
+      }
+    }
+    // Simplified LP PnL approximation: price exposure + fees. Does NOT model impermanent loss / divergence.
+    const simulatedPnlPct = priceChange != null ? priceChange * 100 + feePct : feePct;
 
     // Persist computed values onto the stored position
     const data = load();
