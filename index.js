@@ -461,8 +461,10 @@ After executing, write a brief one-line result per position.
     _managementBusy = false;
     if (!silent && telegramEnabled()) {
       if (mgmtReport) {
-        if (liveMessage) await liveMessage.finalize(stripThink(mgmtReport)).catch(() => {});
-        else sendMessage(`🔄 Management Cycle\n\n${stripThink(mgmtReport)}`).catch(() => { });
+        const reportText = `🔄 Management Cycle\n\n${stripThink(mgmtReport)}`;
+        if (liveMessage) await liveMessage.finalize(reportText).catch(() => {});
+        else sendMessage(reportText).catch(() => { });
+        sendToChannel(reportText).catch(() => {});
       }
       for (const p of positions) {
         if (!p.in_range && p.minutes_out_of_range >= config.management.outOfRangeWaitMinutes) {
@@ -1006,8 +1008,10 @@ IMPORTANT:
     _screeningBusy = false;
     if (!silent && telegramEnabled()) {
       if (screenReport) {
-        if (liveMessage) await liveMessage.finalize(stripThink(screenReport)).catch(() => {});
-        else sendMessage(`🔍 Screening Cycle\n\n${stripThink(screenReport)}`).catch(() => { });
+        const reportText = `🔍 Screening Cycle\n\n${stripThink(screenReport)}`;
+        if (liveMessage) await liveMessage.finalize(reportText).catch(() => {});
+        else sendMessage(reportText).catch(() => { });
+        sendToChannel(reportText).catch(() => {});
       }
     }
   }

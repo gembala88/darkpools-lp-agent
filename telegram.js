@@ -342,9 +342,18 @@ export async function notify(text, type = "info") {
   log("telegram", `notify: ${truncated.slice(0, 80)}`);
 }
 
-/** Deprecated — use notify() instead. Kept for backwards-compat imports. */
-export async function sendToChannel(text, type = "info") {
-  return notify(text, type);
+/**
+ * Send text directly to the channel (view-only, no buttons).
+ * No-op if notification level is "off" or no channel is configured.
+ * Does NOT send to DM — channel only.
+ */
+export async function sendToChannel(text) {
+  if (!TOKEN || _channelNotificationLevel === "off") return;
+  const channelId = resolveChannelId();
+  if (!channelId || channelId === chatId) return;
+  const truncated = String(text).slice(0, 4096);
+  await sendToChat(channelId, "sendMessage", { text: truncated });
+  log("telegram", `sendToChannel: ${truncated.slice(0, 80)}`);
 }
 
 export async function editMessage(text, messageId) {
