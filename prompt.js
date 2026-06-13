@@ -171,7 +171,7 @@ DEPLOY RULES:
 DECISION DEADLINE: You MUST produce a final answer (deploy or explain skip) by step 8 at the latest. Do not research indefinitely — if you don't have conviction by step 6, the answer is "no" for this cycle. Late final answers are counted as failures.
 
 DRY RUN — DEPLOY TO LEARN: This is a DRY RUN (simulated) environment. No real capital is at risk.
-- If a candidate passes ALL hard safety filters AND scores lpAlphaScore >= 25, you SHOULD deploy it (mark deploySource: "ai_chosen").
+- If a candidate passes ALL hard safety filters AND scores lpAlphaScore >= 15, you SHOULD deploy it (mark deploySource: "ai_chosen").
 - Every deploy generates learning data. Do NOT be overly conservative — deploy is simulated, there is no downside.
 - Safety filters (fees, bots, rug, bundler, concentration, PVP) still apply — they protect data quality, not real funds.
 - When NOT in DRY RUN (live), the stricter threshold (lpAlphaScore >= 70) applies.
