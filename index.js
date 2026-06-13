@@ -2661,7 +2661,7 @@ try {
   const memFile = repoPath('data', 'deployment-memory.json');
   if (fs.existsSync(memFile)) {
     const mem = JSON.parse(fs.readFileSync(memFile, 'utf8'));
-    const deploys = Array.isArray(mem) ? mem : (mem.deployments ?? []);
+    const deploys = Array.isArray(mem) ? mem : (mem.deploys ?? mem.deployments ?? []);
     let reclassified = 0;
     for (const d of deploys) {
       if (!d || d.verdict === 'ANOMALY') continue;
@@ -2679,7 +2679,7 @@ try {
       if (Array.isArray(mem)) {
         fs.writeFileSync(memFile, JSON.stringify(mem, null, 2));
       } else {
-        mem.deployments = deploys;
+        mem.deploys = deploys;
         fs.writeFileSync(memFile, JSON.stringify(mem, null, 2));
       }
       log("deploy", `[CLEANUP] reclassified ${reclassified} poisoned records to ANOMALY in deployment-memory.json`);
@@ -2694,7 +2694,7 @@ try {
   const memFile = repoPath('data', 'deployment-memory.json');
   if (fs.existsSync(memFile)) {
     const mem = JSON.parse(fs.readFileSync(memFile, 'utf8'));
-    const deploys = Array.isArray(mem) ? mem : (mem.deployments ?? []);
+    const deploys = Array.isArray(mem) ? mem : (mem.deploys ?? mem.deployments ?? []);
     let reclassified = 0;
     for (const d of deploys) {
       if (!d || d.verdict === 'ANOMALY') continue;
@@ -2709,7 +2709,7 @@ try {
       if (Array.isArray(mem)) {
         fs.writeFileSync(memFile, JSON.stringify(mem, null, 2));
       } else {
-        mem.deployments = deploys;
+        mem.deploys = deploys;
         fs.writeFileSync(memFile, JSON.stringify(mem, null, 2));
       }
       log("deploy", `[CLEANUP] reclassified ${reclassified} price-corrupted records to ANOMALY (priceChange < -0.95)`);
