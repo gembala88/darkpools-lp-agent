@@ -2388,7 +2388,7 @@ async function telegramHandler(msg) {
 
   if (text === "/calibration") {
     try {
-      const memPath = repoPath("data", "deployment-memory.json");
+      const memPath = repoPath("data", process.env.DRY_RUN === "true" ? "dry-run-deployment-memory.json" : "live-deployment-memory.json");
       if (!fs.existsSync(memPath)) {
         await sendMessage("No deployment memory found.").catch(() => {});
         return;
@@ -2723,7 +2723,7 @@ registerCronRestarter(() => { if (cronStarted) startCronJobs(); });
 
 // ─── Startup: purge poisoned anomaly records ───────────────────
 try {
-  const memFile = repoPath('data', 'deployment-memory.json');
+  const memFile = repoPath('data', process.env.DRY_RUN === "true" ? 'dry-run-deployment-memory.json' : 'live-deployment-memory.json');
   if (fs.existsSync(memFile)) {
     const mem = JSON.parse(fs.readFileSync(memFile, 'utf8'));
     const deploys = Array.isArray(mem) ? mem : (mem.deploys ?? mem.deployments ?? []);
@@ -2747,7 +2747,7 @@ try {
         mem.deploys = deploys;
         fs.writeFileSync(memFile, JSON.stringify(mem, null, 2));
       }
-      log("deploy", `[CLEANUP] reclassified ${reclassified} poisoned records to ANOMALY in deployment-memory.json`);
+      log("deploy", `[CLEANUP] reclassified ${reclassified} poisoned records to ANOMALY`);
     }
   }
 } catch (e) {
@@ -2756,7 +2756,7 @@ try {
 
 // ─── Startup: reclassify price-corrupted records (priceChange compared active_price vs pool_price — always -99%) ──
 try {
-  const memFile = repoPath('data', 'deployment-memory.json');
+  const memFile = repoPath('data', process.env.DRY_RUN === "true" ? 'dry-run-deployment-memory.json' : 'live-deployment-memory.json');
   if (fs.existsSync(memFile)) {
     const mem = JSON.parse(fs.readFileSync(memFile, 'utf8'));
     const deploys = Array.isArray(mem) ? mem : (mem.deploys ?? mem.deployments ?? []);

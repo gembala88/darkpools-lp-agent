@@ -2,7 +2,7 @@ import fs from 'fs';
 import { repoPath } from '../../repo-root.js';
 import { log } from '../../logger.js';
 
-const MEMORY_FILE = () => repoPath('data', 'deployment-memory.json');
+const MEMORY_FILE = () => repoPath('data', process.env.DRY_RUN === "true" ? 'dry-run-deployment-memory.json' : 'live-deployment-memory.json');
 
 export function analyzeDeploymentMemory() {
   try {

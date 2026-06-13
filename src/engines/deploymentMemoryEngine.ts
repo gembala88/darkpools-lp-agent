@@ -3,14 +3,31 @@ import type { DeployRecord, PatternRecord, MarketRegime } from '../types/index.j
 import * as fs from 'fs';
 import * as path from 'path';
 
-const DATA_FILE = path.resolve('data/deployment-memory.json');
+function getDataFile(): string {
+  return process.env.DRY_RUN === 'true'
+    ? path.resolve('data/dry-run-deployment-memory.json')
+    : path.resolve('data/live-deployment-memory.json');
+}
 
 function loadDeployHistory(): DeployRecord[] {
   try {
-    if (fs.existsSync(DATA_FILE)) {
-      const raw = fs.readFileSync(DATA_FILE, 'utf-8');
+    const dataFile = getDataFile();
+    if (fs.existsSync(dataFile)) {
+      const raw = fs.readFileSync(dataFile, 'utf-8');
       const data = JSON.parse(raw);
       return Array.isArray(data) ? data : [];
+    }
+    // Migration: old unified file exists but mode-specific file does not
+    const oldFile = path.resolve('data/deployment-memory.json');
+    if (fs.existsSync(oldFile) && !fs.existsSync(dataFile)) {
+      const raw = fs.readFileSync(oldFile, 'utf-8');
+      const data = JSON.parse(raw);
+      if (Array.isArray(data) && data.length > 0) {
+        const dir = path.dirname(dataFile);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(dataFile, JSON.stringify(data, null, 2), 'utf-8');
+        return data;
+      }
     }
   } catch {}
   return [];
@@ -18,9 +35,10 @@ function loadDeployHistory(): DeployRecord[] {
 
 function saveDeployHistory(history: DeployRecord[]): void {
   try {
-    const dir = path.dirname(DATA_FILE);
+    const dataFile = getDataFile();
+    const dir = path.dirname(dataFile);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(DATA_FILE, JSON.stringify(history, null, 2), 'utf-8');
+    fs.writeFileSync(dataFile, JSON.stringify(history, null, 2), 'utf-8');
   } catch {}
 }
 

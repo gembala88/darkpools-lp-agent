@@ -703,9 +703,10 @@ export async function executeTool(name, args) {
             log("deploy", "[DRY_RUN] building records...");
             // Write both memory files with absolute paths
             let memWriteCount = 0;
+            const memFileName = process.env.DRY_RUN === "true" ? 'dry-run-deployment-memory.json' : 'live-deployment-memory.json';
             for (const [label, filePath] of Object.entries({
               'dry-run-memory': ['data', 'dry-run-memory.json'],
-              'deployment-memory': ['data', 'deployment-memory.json'],
+              'deployment-memory': ['data', memFileName],
             })) {
               const absPath = repoPath(...filePath);
               log("deploy", `[DRY_RUN] writing ${label} to: ${absPath}`);
