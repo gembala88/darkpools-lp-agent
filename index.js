@@ -326,14 +326,23 @@ export async function runManagementCycle({ silent = false } = {}) {
       actionMap.set(p.position, { action: "STAY" });
     }
 
-    // DRY RUN: evaluate and report simulated positions
+    // DRY RUN: evaluate and report simulated positions (async — fetches live pool data from datapi)
     let dryRunReportLines = [];
     if (dryRunPositions.length > 0) {
-      const evaluated = evaluateDryRunPositions(positions);
-      dryRunReportLines = evaluated.map((p, i) => {
+      const evaluated = await evaluateDryRunPositions(positions, config.management);
+      for (const p of evaluated) {
         const age = p.deployed_at ? Math.round((Date.now() - new Date(p.deployed_at).getTime()) / 60000) : "?";
-        return `🧪 ${p.pool_name || p.pool_address?.slice(0, 8)} | ${p.amount_y} SOL | ${age}m | TVL: $${p.entry_tvl?.toLocaleString() || "?"} | Sim PnL: ${p.simulated_pnl_pct != null ? p.simulated_pnl_pct + "%" : "awaiting data"} | Fees: ${p.simulated_fees != null ? "$" + p.simulated_fees.toFixed(2) : "?"} | ${p.status === "no_data" ? "⏳ pool not on chain" : "🟢 tracking"}`;
-      });
+        const pnlStr = p.simulated_pnl_pct != null
+          ? (p.simulated_pnl_pct >= 0 ? `🟢 +${p.simulated_pnl_pct.toFixed(1)}%` : `🔻 ${p.simulated_pnl_pct.toFixed(1)}%`)
+          : "⏳ awaiting data";
+        const feeStr = p.simulated_fees != null ? `$${p.simulated_fees.toFixed(2)}` : "?";
+        const statusIcon = p.status === "no_data" ? "⏳" : p.status === "closed_tp" ? "✅" : p.status === "closed_sl" ? "❌" : "🧪";
+        dryRunReportLines.push(`${statusIcon} ${p.pool_name || p.pool_address?.slice(0, 8)} | ${p.amount_y} SOL | ${age}m | Sim PnL: ${pnlStr} | Fees: ${feeStr}`);
+        if (p.status === "closed_tp" || p.status === "closed_sl") {
+          const label = p.status === "closed_tp" ? "TAKE PROFIT" : "STOP LOSS";
+          log("dry_run_positions", `[SIM CLOSED] ${p.pool_name || p.pool_address?.slice(0, 8)} — ${label} at ${p.simulated_pnl_pct?.toFixed(1)}%`);
+        }
+      }
     }
 
     // ── Build JS report ──────────────────────────────────────────────
@@ -2113,7 +2122,7 @@ async function telegramHandler(msg) {
     try {
       const { positions, total_positions } = await getMyPositions({ force: true });
       const isDryRun = process.env.DRY_RUN === 'true';
-      const drPositions = isDryRun ? getDryRunPositions() : [];
+      const drPositions = isDryRun ? await evaluateDryRunPositions(positions, config.management) : [];
       const cur = config.management.solMode ? "◎" : "$";
       const lines = [];
       if (total_positions > 0) {
@@ -2124,16 +2133,28 @@ async function telegramHandler(msg) {
           lines.push(`${i + 1}. ${p.pair} | ${cur}${p.total_value_usd} | PnL: ${pnl} | fees: ${cur}${p.unclaimed_fees_usd} | ${age}${oor}`);
         });
       }
-      if (drPositions.length > 0) {
+      const openDr = drPositions.filter(p => p.closed_at == null);
+      const closedDr = drPositions.filter(p => p.closed_at != null);
+      if (openDr.length > 0) {
         if (lines.length > 0) lines.push("");
-        lines.push(`🧪 DRY RUN Positions (${drPositions.length}):`);
-        for (const p of drPositions) {
+        lines.push(`🧪 DRY RUN (${openDr.length} open, ${closedDr.length} closed):`);
+        for (const p of openDr) {
           const age = p.deployed_at ? Math.round((Date.now() - new Date(p.deployed_at).getTime()) / 60000) : "?";
-          lines.push(`  ${p.pool_name || p.pool_address?.slice(0, 8)} | ${p.amount_y} SOL | ${age}m | TVL: $${p.entry_tvl?.toLocaleString() || "?"} | Sim PnL: ${p.simulated_pnl_pct != null ? p.simulated_pnl_pct + "%" : "awaiting data"}`);
+          const pnlStr = p.simulated_pnl_pct != null
+            ? (p.simulated_pnl_pct >= 0 ? `+${p.simulated_pnl_pct.toFixed(1)}%` : `${p.simulated_pnl_pct.toFixed(1)}%`)
+            : "awaiting data";
+          const feeStr = p.simulated_fees != null ? `$${p.simulated_fees.toFixed(2)}` : "?";
+          lines.push(`  ${p.pool_name || p.pool_address?.slice(0, 8)} | ${p.amount_y} SOL | ${age}m | Sim PnL: ${pnlStr} | Sim fees: ${feeStr}`);
+        }
+      } else if (closedDr.length > 0) {
+        if (lines.length > 0) lines.push("");
+        lines.push(`📦 DRY RUN closed (${closedDr.length}):`);
+        for (const p of closedDr.slice(-3)) {
+          lines.push(`  ${p.pool_name || p.pool_address?.slice(0, 8)} | PnL: ${p.simulated_pnl_pct?.toFixed(1) ?? "?"}% | ${p.close_reason || "?"}`);
         }
       }
       if (lines.length === 0) { await sendMessage("No open positions."); return; }
-      await sendMessage(`📊 Open Positions (${total_positions + drPositions.length}):\n\n${lines.join("\n")}\n\n/close <n> to close | /set <n> <note> to set instruction`);
+      await sendMessage(`📊 Open Positions (${total_positions + openDr.length}):\n\n${lines.join("\n")}\n\n/close <n> to close | /set <n> <note> to set instruction`);
     } catch (e) { await sendMessage(`Error: ${e.message}`).catch(() => {}); }
     return;
   }
@@ -2202,7 +2223,8 @@ async function telegramHandler(msg) {
       const idx = parseInt(closeMatch[1]) - 1;
       const { positions } = await getMyPositions({ force: true });
       const isDryRun = process.env.DRY_RUN === 'true';
-      const drPositions = isDryRun ? getDryRunPositions() : [];
+      const drPositions = isDryRun ? await evaluateDryRunPositions(positions, config.management) : [];
+      const openDr = drPositions.filter(p => p.closed_at == null);
       if (idx >= 0 && idx < positions.length) {
         const pos = positions[idx];
         await sendMessage(`Closing ${pos.pair}...`);
@@ -2214,12 +2236,13 @@ async function telegramHandler(msg) {
         } else {
           await sendMessage(`❌ Close failed: ${JSON.stringify(result)}`);
         }
-      } else if (isDryRun && idx >= positions.length && idx < positions.length + drPositions.length) {
+      } else if (isDryRun && idx >= positions.length && idx < positions.length + openDr.length) {
         const drIdx = idx - positions.length;
-        const drPos = drPositions[drIdx];
-        const closed = closeDryRunPosition(drPos.id, { reason: "manual" });
+        const drPos = openDr[drIdx];
+        const closed = closeDryRunPosition(drPos.id, { pnl_pct: drPos.simulated_pnl_pct, fees_earned: drPos.simulated_fees, reason: "manual" });
         if (closed) {
-          await sendMessage(`🧪 Dry-run position ${drPos.pool_name || drPos.pool_address?.slice(0, 8)} closed.`);
+          const pnlStr = closed.simulated_pnl_pct != null ? `PnL: ${closed.simulated_pnl_pct.toFixed(1)}%` : "";
+          await sendMessage(`🧪 Dry-run position ${drPos.pool_name || drPos.pool_address?.slice(0, 8)} closed. ${pnlStr}`);
         } else {
           await sendMessage(`❌ Failed to close dry-run position.`);
         }

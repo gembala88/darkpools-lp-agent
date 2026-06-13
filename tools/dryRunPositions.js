@@ -3,6 +3,37 @@ import { log } from "../logger.js";
 import { repoPath } from "../repo-root.js";
 
 const DRY_RUN_POSITIONS_FILE = repoPath("data", "dry-run-positions.json");
+const POOL_DISCOVERY_BASE = "https://pool-discovery-api.datapi.meteora.ag";
+
+async function fetchPoolState(poolAddress) {
+  try {
+    const url = `${POOL_DISCOVERY_BASE}/pools?page_size=1&filter_by=${encodeURIComponent("pool_address=" + poolAddress)}&timeframe=5m`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (res.ok) {
+      const body = await res.json();
+      const pool = (body.data || [])[0];
+      if (pool) {
+        return {
+          tvl: pool.active_tvl ?? pool.tvl ?? null,
+          price: pool.pool_price ?? null,
+          volume24h: pool.volume ?? null,
+          feePct: pool.fee_pct ?? null,
+        };
+      }
+    }
+  } catch (e) {
+    log("dry_run_positions", `fetchPoolState ${poolAddress.slice(0, 8)} error: ${e.message}`);
+  }
+  return null;
+}
+
+function estimateFees(currentState, holdingHours) {
+  if (!currentState) return 0;
+  const vol24h = currentState.volume24h ?? 0;
+  if (vol24h <= 0) return 0;
+  const feeRate = currentState.feePct != null ? currentState.feePct / 100 : 0.003;
+  return vol24h * feeRate * Math.min(holdingHours / 24, 1);
+}
 
 function load() {
   if (!fs.existsSync(DRY_RUN_POSITIONS_FILE)) return { positions: [] };
@@ -100,25 +131,63 @@ export function closeDryRunPosition(positionId, { pnl_pct, fees_earned, reason }
   return pos;
 }
 
-export function evaluateDryRunPositions(currentPositions) {
+export async function evaluateDryRunPositions(currentPositions, managementConfig = null) {
   const open = getDryRunPositions();
   if (open.length === 0) return [];
 
-  const currentMap = {};
-  for (const cp of currentPositions) {
-    currentMap[cp.pool] = cp;
-  }
+  const stopLossPct = managementConfig?.stopLossPct ?? -50;
+  const takeProfitPct = managementConfig?.takeProfitPct ?? 15;
 
   const results = [];
   for (const pos of open) {
-    const live = currentMap[pos.pool_address];
-    if (!live) {
+    const now = Date.now();
+    const deployedAt = new Date(pos.deployed_at).getTime();
+    if (!deployedAt) {
       results.push({ ...pos, simulated_pnl_pct: null, simulated_fees: null, status: "no_data" });
       continue;
     }
-    const pnlPct = live.pnl_pct != null ? Number(live.pnl_pct) : null;
-    const feesUsd = live.unclaimed_fees_usd != null ? Number(live.unclaimed_fees_usd) : null;
-    results.push({ ...pos, simulated_pnl_pct: pnlPct, simulated_fees: feesUsd, status: "tracking", live_pool: live });
+    const holdingHours = (now - deployedAt) / (1000 * 60 * 60);
+
+    const state = await fetchPoolState(pos.pool_address);
+    if (!state) {
+      results.push({ ...pos, simulated_pnl_pct: null, simulated_fees: null, status: "no_data" });
+      continue;
+    }
+
+    const entryPrice = pos.active_price ?? null;
+    const currentPrice = state.price ?? null;
+    let priceChange = null;
+    if (entryPrice != null && currentPrice != null && entryPrice > 0) {
+      priceChange = (currentPrice - entryPrice) / entryPrice;
+    }
+
+    const feesUsd = estimateFees(state, Math.max(holdingHours, 0.0833));
+    const simulatedPnlPct = priceChange != null ? priceChange * 100 + (feesUsd > 0 ? (feesUsd / (pos.amount_y || 0.12)) * 100 : 0) : 0;
+
+    // Persist computed values onto the stored position
+    const data = load();
+    const stored = data.positions.find(p => p.id === pos.id);
+    if (stored) {
+      stored.simulated_pnl_pct = simulatedPnlPct;
+      stored.simulated_fees = feesUsd;
+      save(data);
+    }
+
+    // Auto-close on simulated take-profit / stop-loss
+    if (simulatedPnlPct >= takeProfitPct) {
+      log("dry_run_positions", `[SIM CLOSE] ${pos.pool_name || pos.pool_address?.slice(0, 8)} — take-profit at ${simulatedPnlPct.toFixed(1)}%`);
+      const closed = closeDryRunPosition(pos.id, { pnl_pct: simulatedPnlPct, fees_earned: feesUsd, reason: "take_profit" });
+      results.push({ ...pos, ...closed, status: "closed_tp" });
+      continue;
+    }
+    if (simulatedPnlPct <= stopLossPct) {
+      log("dry_run_positions", `[SIM CLOSE] ${pos.pool_name || pos.pool_address?.slice(0, 8)} — stop-loss at ${simulatedPnlPct.toFixed(1)}%`);
+      const closed = closeDryRunPosition(pos.id, { pnl_pct: simulatedPnlPct, fees_earned: feesUsd, reason: "stop_loss" });
+      results.push({ ...pos, ...closed, status: "closed_sl" });
+      continue;
+    }
+
+    results.push({ ...pos, simulated_pnl_pct: simulatedPnlPct, simulated_fees: feesUsd, status: "tracking" });
   }
   return results;
 }
@@ -140,7 +209,7 @@ export function getDryRunPositionsSummary() {
   if (closed.length > 0) {
     lines.push(`\n📦 Closed (${closed.length}):`);
     for (const p of closed.slice(-5)) {
-      lines.push(`  ${p.pool_name || p.pool_address?.slice(0, 8)} | PnL: ${p.simulated_pnl_pct != null ? p.simulated_pnl_pct + "%" : "?"} | Reason: ${p.close_reason || "?"}`);
+      lines.push(`  ${p.pool_name || p.pool_address?.slice(0, 8)} | PnL: ${p.simulated_pnl_pct != null ? p.simulated_pnl_pct.toFixed(1) + "%" : "?"} | Reason: ${p.close_reason || "?"}`);
     }
   }
   return lines.join("\n");
