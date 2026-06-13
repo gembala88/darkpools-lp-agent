@@ -2689,6 +2689,36 @@ try {
   log("deploy", `[CLEANUP] anomaly cleanup skipped: ${e.message}`);
 }
 
+// ─── Startup: reclassify price-corrupted records (priceChange compared active_price vs pool_price — always -99%) ──
+try {
+  const memFile = repoPath('data', 'deployment-memory.json');
+  if (fs.existsSync(memFile)) {
+    const mem = JSON.parse(fs.readFileSync(memFile, 'utf8'));
+    const deploys = Array.isArray(mem) ? mem : (mem.deployments ?? []);
+    let reclassified = 0;
+    for (const d of deploys) {
+      if (!d || d.verdict === 'ANOMALY') continue;
+      const o4h = d.outcome4h || d.outcome_4h || {};
+      const priceChange4h = Number(o4h.priceChange ?? o4h.price_change ?? 0);
+      if (priceChange4h < -0.95) {
+        d.verdict = 'ANOMALY';
+        reclassified++;
+      }
+    }
+    if (reclassified > 0) {
+      if (Array.isArray(mem)) {
+        fs.writeFileSync(memFile, JSON.stringify(mem, null, 2));
+      } else {
+        mem.deployments = deploys;
+        fs.writeFileSync(memFile, JSON.stringify(mem, null, 2));
+      }
+      log("deploy", `[CLEANUP] reclassified ${reclassified} price-corrupted records to ANOMALY (priceChange < -0.95)`);
+    }
+  }
+} catch (e) {
+  log("deploy", `[CLEANUP] price-corrupted cleanup skipped: ${e.message}`);
+}
+
 if (isMain && isTTY) {
   const rl = readline.createInterface({
     input: process.stdin,

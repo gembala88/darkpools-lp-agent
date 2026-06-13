@@ -685,7 +685,17 @@ export async function executeTool(name, args) {
             const _lane = args.lane || "?";
             const _regime = args.regime || "?";
             const _entryTvl = args.entry_tvl || args.initial_value_usd || null;
-            log("deploy", `[DEPLOY] ${_name} resolved TVL=${_entryTvl} for gate+record`);
+            // Fetch pool_price from datapi (same source outcomeTracker uses) — NOT active_price (different unit)
+            let _entryPoolPrice = null;
+            try {
+              const res = await fetch('https://pool-discovery-api.datapi.meteora.ag/pools?page_size=1&filter_by=' + encodeURIComponent('pool_address=' + args.pool_address) + '&timeframe=5m', { signal: AbortSignal.timeout(8000) });
+              if (res.ok) {
+                const body = await res.json();
+                const pool = (body.data || [])[0];
+                if (pool) _entryPoolPrice = pool.pool_price ?? null;
+              }
+            } catch (e) { log("deploy", `[DRY_RUN] pool_price fetch failed: ${e.message}`); }
+            log("deploy", `[DEPLOY] ${_name} resolved TVL=${_entryTvl} pool_price=${_entryPoolPrice} for gate+record`);
             log("deploy", `[DRY_RUN] Simulated DLMM deploy: ${_name} bin_step=${_binStep} activeBin=${_activeBin} amount=${_amount} SOL lane=${_lane} regime=${_regime} → writing memory...`);
             log("deploy", "[DRY_RUN] building records...");
             // Write both memory files with absolute paths
@@ -726,6 +736,7 @@ export async function executeTool(name, args) {
                 entryTvl: args.entry_tvl || args.initial_value_usd || null,
                 entryFees: null,
                 entryPrice: result?.would_deploy?.active_price ?? null,
+                entryPoolPrice: _entryPoolPrice,
                 verdict: "PENDING",
                 dryRun: true,
                 outcome1h: null,
@@ -761,6 +772,7 @@ export async function executeTool(name, args) {
                 deploy_source: args.deploy_source || "ai_chosen",
                 base_mint: args.base_mint,
                 entry_tvl: _entryTvl,
+                entry_pool_price: _entryPoolPrice,
               });
               log("deploy", `[DRY_RUN] Position tracked for lifecycle management`);
             } catch (e) {

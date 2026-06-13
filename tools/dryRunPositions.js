@@ -72,6 +72,7 @@ export function trackDryRunPosition({
   deploy_source,
   base_mint,
   entry_tvl,
+  entry_pool_price,
 }) {
   const data = load();
   const position = {
@@ -85,6 +86,7 @@ export function trackDryRunPosition({
     active_bin: Number(active_bin),
     bin_step: Number(bin_step),
     active_price: Number(active_price),
+    entry_pool_price: entry_pool_price != null ? Number(entry_pool_price) : null,
     volatility: volatility != null ? Number(volatility) : null,
     lane: lane || null,
     regime: regime || null,
@@ -154,11 +156,14 @@ export async function evaluateDryRunPositions(currentPositions, managementConfig
       continue;
     }
 
-    const entryPrice = pos.active_price ?? null;
+    // Use entry_pool_price (datapi pool_price at deploy) for priceChange — NOT active_price (DLMM bin price, different unit)
+    const entryPoolPrice = pos.entry_pool_price ?? null;
     const currentPrice = state.price ?? null;
     let priceChange = null;
-    if (entryPrice != null && currentPrice != null && entryPrice > 0) {
-      priceChange = (currentPrice - entryPrice) / entryPrice;
+    if (entryPoolPrice != null && currentPrice != null && entryPoolPrice > 0) {
+      priceChange = (currentPrice - entryPoolPrice) / entryPoolPrice;
+    } else {
+      log("dry_run_positions", `priceChange skipped for ${pos.pool_address?.slice(0, 8)} — entryPoolPrice=${entryPoolPrice} currentPrice=${currentPrice}`);
     }
 
     const feesUsd = estimateFees(state, Math.max(holdingHours, 0.0833));

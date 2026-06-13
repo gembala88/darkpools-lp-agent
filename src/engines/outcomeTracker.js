@@ -123,13 +123,18 @@ export async function checkOutcomes() {
         const state = await fetchPoolCurrentState(deploy.poolAddress || deploy.pool_address);
         if (state) {
           const entryTvl = deploy.entryTvl ?? 0;
-          const entryPrice = deploy.entryPrice ?? null;
+          // Use entryPoolPrice (datapi pool_price at deploy) — NOT entryPrice (active_price, different unit)
+          const entryPrice = deploy.entryPoolPrice ?? null;
+          let priceChange = null;
+          if (entryPrice != null && entryPrice > 0 && state.price != null && state.price > 0) {
+            priceChange = (state.price - entryPrice) / entryPrice;
+          }
           deploy.outcome1h = {
             checkedAt: new Date().toISOString(),
             currentTvl: state.tvl,
             tvlChange: entryTvl > 0 ? (state.tvl - entryTvl) / entryTvl : null,
             feesEarned: estimateFeesEarned(state, 1),
-            priceChange: (entryPrice != null && state.price != null) ? (state.price - entryPrice) / entryPrice : null,
+            priceChange,
             note: 'SIMULATED (computed from discovery data)',
           };
           changed = true;
@@ -144,13 +149,17 @@ export async function checkOutcomes() {
         const state = await fetchPoolCurrentState(deploy.poolAddress || deploy.pool_address);
         if (state) {
           const entryTvl = deploy.entryTvl ?? 0;
-          const entryPrice = deploy.entryPrice ?? null;
+          const entryPrice = deploy.entryPoolPrice ?? null;
+          let priceChange = null;
+          if (entryPrice != null && entryPrice > 0 && state.price != null && state.price > 0) {
+            priceChange = (state.price - entryPrice) / entryPrice;
+          }
           const outcome = {
             checkedAt: new Date().toISOString(),
             currentTvl: state.tvl,
             tvlChange: entryTvl > 0 ? (state.tvl - entryTvl) / entryTvl : null,
             feesEarned: estimateFeesEarned(state, 4),
-            priceChange: (entryPrice != null && state.price != null) ? (state.price - entryPrice) / entryPrice : null,
+            priceChange,
             note: 'SIMULATED (computed from discovery data)',
           };
           deploy.outcome4h = outcome;
