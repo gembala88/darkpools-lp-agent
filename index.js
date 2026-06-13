@@ -6,7 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { agentLoop } from "./agent.js";
 import { log } from "./logger.js";
-import { getMyPositions, closePosition, getActiveBin } from "./tools/dlmm.js";
+import { getMyPositions, closePosition } from "./tools/dlmm.js";
 import { getWalletBalances } from "./tools/wallet.js";
 import { getTopCandidates } from "./tools/screening.js";
 import { LPIntelligenceService } from "./dist/services/lpIntelligenceService.js";
@@ -660,11 +660,6 @@ export async function runScreeningCycle({ silent = false } = {}) {
       }
     }
 
-    // Pre-fetch active_bin for all passing candidates in parallel
-    const activeBinResults = await Promise.allSettled(
-      passing.map(({ pool }) => getActiveBin({ pool_address: pool.pool }))
-    );
-
     // AI Intelligence Layer pool evaluation
     const lpIntelligence = new LPIntelligenceService();
     const laneOverride = effectiveMinAlpha;
@@ -697,8 +692,6 @@ export async function runScreeningCycle({ silent = false } = {}) {
       const launchpad = ti?.launchpad ?? null;
       const priceChange = ti?.stats_1h?.price_change;
       const netBuyers = ti?.stats_1h?.net_buyers;
-      const activeBin = activeBinResults[i]?.status === "fulfilled" ? activeBinResults[i].value?.binId : null;
-
       const pvpLine = pool.is_pvp
         ? `  pvp: HIGH — rival ${pool.pvp_rival_name || pool.pvp_symbol} (${pool.pvp_rival_mint?.slice(0, 8)}...) has pool ${pool.pvp_rival_pool?.slice(0, 8)}..., tvl=$${pool.pvp_rival_tvl}, holders=${pool.pvp_rival_holders}, fees=${pool.pvp_rival_fees}SOL`
         : null;
@@ -719,7 +712,6 @@ export async function runScreeningCycle({ silent = false } = {}) {
           formatGmgnCandidateForPrompt(pool),
           pvpLine,
           `  smart_wallets: ${sw?.in_pool?.length ?? 0} present${sw?.in_pool?.length ? ` → CONFIDENCE BOOST (${sw.in_pool.map(w => w.name).join(", ")})` : ""}`,
-          activeBin != null ? `  active_bin: ${activeBin}` : null,
           n?.narrative ? `  narrative_untrusted: ${sanitizeUntrustedPromptText(n.narrative, 500)}` : `  narrative_untrusted: none`,
           mem ? `  memory_untrusted: ${sanitizeUntrustedPromptText(mem, 500)}` : null,
           aiMap[pool.pool] ? `  ai: regime=${aiMap[pool.pool].marketRegime} | whale=${aiMap[pool.pool].whaleExitProb?.toFixed(1)}% | chief=${aiMap[pool.pool].aiChiefRecommendation}` : null,
@@ -740,7 +732,6 @@ export async function runScreeningCycle({ silent = false } = {}) {
           gmgnPriceLine,
           pvpLine,
           `  smart_wallets: ${sw?.in_pool?.length ?? 0} present${sw?.in_pool?.length ? ` → CONFIDENCE BOOST (${sw.in_pool.map(w => w.name).join(", ")})` : ""}`,
-          activeBin != null ? `  active_bin: ${activeBin}` : null,
           priceChange != null ? `  1h: price${priceChange >= 0 ? "+" : ""}${priceChange}%, net_buyers=${netBuyers ?? "?"}` : null,
           n?.narrative ? `  narrative_untrusted: ${sanitizeUntrustedPromptText(n.narrative, 500)}` : `  narrative_untrusted: none`,
           mem ? `  memory_untrusted: ${sanitizeUntrustedPromptText(mem, 500)}` : null,

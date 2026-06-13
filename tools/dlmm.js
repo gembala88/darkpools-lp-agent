@@ -573,9 +573,21 @@ async function getPoolMetadata(poolAddress) {
   }
 }
 
-// ─── Active Bin Cache (30s TTL per pool) ───────────────────────
+// ─── Active Bin Cache (5min TTL per pool) ──────────────────────
 const _activeBinCache = new Map();
-const ACTIVE_BIN_CACHE_TTL_MS = 30_000;
+const ACTIVE_BIN_CACHE_TTL_MS = 300_000;
+let _lastGetActiveBinCall = 0;
+const GET_ACTIVE_BIN_THROTTLE_MS = 300;
+
+async function throttleGetActiveBin() {
+  const now = Date.now();
+  const elapsed = now - _lastGetActiveBinCall;
+  if (elapsed < GET_ACTIVE_BIN_THROTTLE_MS) {
+    const wait = GET_ACTIVE_BIN_THROTTLE_MS - elapsed;
+    await new Promise(r => setTimeout(r, wait));
+  }
+  _lastGetActiveBinCall = Date.now();
+}
 
 function getActiveBinCacheKey(poolAddress) {
   return String(poolAddress);
@@ -596,7 +608,7 @@ function setCachedActiveBin(poolAddress, value) {
   _activeBinCache.set(key, { value, ts: Date.now() });
 }
 
-const RPC_BACKOFF_DELAYS = [500, 1000, 2000]; // ms between retries
+const RPC_BACKOFF_DELAYS = [1000, 3000, 6000]; // ms between retries — gentle to avoid RPC rate limits
 
 export async function getActiveBin({ pool_address }) {
   pool_address = normalizeMint(pool_address);
@@ -604,7 +616,7 @@ export async function getActiveBin({ pool_address }) {
   // Return cached value if fresh
   const cached = getCachedActiveBin(pool_address);
   if (cached) {
-    log("rpc", `getActiveBin ${pool_address.slice(0, 8)} — using 30s cache`);
+    log("rpc", `getActiveBin ${pool_address.slice(0, 8)} — using cache`);
     return cached;
   }
 
@@ -621,11 +633,13 @@ export async function getActiveBin({ pool_address }) {
     }
   } catch { /* owner check failed — proceed with DLMM SDK attempt */ }
 
-  for (let attempt = 0; attempt < Math.max(RPC_FALLBACKS_UNIQUE.length, 3); attempt++) {
+  await throttleGetActiveBin();
+
+  for (let attempt = 0; attempt < 4; attempt++) {
     try {
       if (attempt > 0) rotateRpc();
       const pool = await getPool(pool_address);
-  const activeBin = await getActiveBin({ pool_address });
+      const activeBin = await pool.getActiveBin();
 
       const result = {
         binId: activeBin.binId,
@@ -639,7 +653,7 @@ export async function getActiveBin({ pool_address }) {
       lastError = err;
       const delayMs = RPC_BACKOFF_DELAYS[Math.min(attempt, RPC_BACKOFF_DELAYS.length - 1)];
       log("rpc", `getActiveBin attempt ${attempt + 1} failed: ${err.message || err} — retrying in ${delayMs}ms`);
-      if (attempt < Math.max(RPC_FALLBACKS_UNIQUE.length, 3) - 1) {
+      if (attempt < 3) {
         await new Promise(r => setTimeout(r, delayMs));
       }
     }
@@ -696,7 +710,7 @@ export async function deployPosition({
     log("deploy", `Base mint ${baseMint.slice(0, 8)} is on cooldown — skipping deploy for pool ${pool_address.slice(0, 8)}`);
     return { success: false, error: "Token on cooldown — recently closed out-of-range too many times. Try a different token." };
   }
-  const activeBin = await pool.getActiveBin();
+  const activeBin = await getActiveBin({ pool_address });
   const actualBinStep = pool.lbPair.binStep;
   const activePrice = Number(getPriceOfBinByBinId(activeBin.binId, actualBinStep).toString());
 
