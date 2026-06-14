@@ -335,6 +335,7 @@ const toolMap = {
       blockPvpSymbols: ["screening", "blockPvpSymbols"],
       maxBotHoldersPct: ["screening", "maxBotHoldersPct"],
       maxTop10Pct: ["screening", "maxTop10Pct"],
+      maxVolatility: ["screening", "maxVolatility"],
       allowedLaunchpads: ["screening", "allowedLaunchpads"],
       blockedLaunchpads: ["screening", "blockedLaunchpads"],
       minTokenAgeHours: ["screening", "minTokenAgeHours"],

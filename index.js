@@ -610,9 +610,44 @@ export async function runScreeningCycle({ silent = false } = {}) {
       await new Promise(r => setTimeout(r, 150)); // avoid 429s
     }
 
-    // Hard filters after token recon — block launchpads and excessive Jupiter bot holders
-    // Skipped for GMGN: platforms already filtered upstream; bundler/bot data from GMGN pipeline
+    // ── Load deployment memory for per-pool/token historical win/loss stats ──
+    const memFileName = process.env.DRY_RUN === "true" ? 'dry-run-deployment-memory.json' : 'live-deployment-memory.json';
+    const memPath = repoPath('data', memFileName);
+    const memDeploys = [];
+    if (fs.existsSync(memPath)) {
+      try {
+        const mem = JSON.parse(fs.readFileSync(memPath, 'utf8'));
+        const deploys = Array.isArray(mem) ? mem : (mem.deploys ?? []);
+        for (const d of deploys) {
+          if (d.verdict && d.verdict !== 'PENDING' && d.verdict !== 'ANOMALY') {
+            memDeploys.push(d);
+          }
+        }
+      } catch (e) { log("screening", `Memory read failed: ${e.message}`); }
+    }
+    // Build per-pool and per-token aggregate stats
+    const poolStats = {}; // poolAddress -> { wins, losses, total }
+    const tokenStats = {}; // baseMint -> { wins, losses, total }
+    for (const d of memDeploys) {
+      const addr = d.poolAddress || d.pool_address;
+      if (addr) {
+        if (!poolStats[addr]) poolStats[addr] = { wins: 0, losses: 0, total: 0 };
+        poolStats[addr].total++;
+        if (d.verdict === 'PROFIT') poolStats[addr].wins++;
+        else if (d.verdict === 'LOSS') poolStats[addr].losses++;
+      }
+      const tMint = d.tokenMint || d.base_mint;
+      if (tMint) {
+        if (!tokenStats[tMint]) tokenStats[tMint] = { wins: 0, losses: 0, total: 0 };
+        tokenStats[tMint].total++;
+        if (d.verdict === 'PROFIT') tokenStats[tMint].wins++;
+        else if (d.verdict === 'LOSS') tokenStats[tMint].losses++;
+      }
+    }
+
+    // Hard filters after token recon — block launchpads, excessive bot holders, and memory-cooldown pools
     const filteredOut = [];
+    const memoryHistory = []; // poor-history lines for prompt injection
     const passing = allCandidates.filter(({ pool, ti }) => {
       if (pool.gmgn) return true;
       const launchpad = ti?.launchpad ?? null;
@@ -632,6 +667,20 @@ export async function runScreeningCycle({ silent = false } = {}) {
         log("screening", `Bot-holder filter: dropped ${pool.name} — bots ${botPct}% > ${maxBotHoldersPct}%`);
         filteredOut.push({ name: pool.name, reason: `bot holders ${botPct}% > ${maxBotHoldersPct}%` });
         return false;
+      }
+      // Memory-based cooldown: pools with >= 3 losses and win-rate < 30%
+      const pStats = poolStats[pool.pool];
+      const baseMint = pool.base?.mint || pool.base_mint;
+      const tStats = baseMint ? tokenStats[baseMint] : null;
+      const checkStats = pStats || tStats;
+      if (checkStats && checkStats.losses >= 3 && checkStats.total >= 3) {
+        const winRate = checkStats.wins / checkStats.total;
+        if (winRate < 0.3) {
+          log("screening", `MEMORY BLOCK: ${pool.name} ${checkStats.wins}W/${checkStats.losses}L — skipping, poor history`);
+          filteredOut.push({ name: pool.name, reason: `memory cooldown: ${checkStats.wins}W/${checkStats.losses}L historically — skipping, poor track record` });
+          memoryHistory.push(`AVOID — ${pool.name}: ${checkStats.wins}W/${checkStats.losses}L historically`);
+          return false;
+        }
       }
       return true;
     });
@@ -896,6 +945,7 @@ Positions: ${prePositions.total_positions}/${config.risk.maxPositions} | SOL: ${
 PRE-LOADED CANDIDATES (${passing.length} pools):
 ${candidateBlocks.join("\n\n")}
 
+${memoryHistory.length > 0 ? `HISTORICAL PERFORMANCE (pools to avoid based on past losses):\n${memoryHistory.join("\n")}\n` : ''}
 STEPS:
 1. Decide whether any candidate is worth deploying. A single remaining candidate is not automatically good enough.
 2. Pick the best candidate only if it has real conviction from narrative quality, smart wallets, and pool metrics. If the list has only one pool and it lacks narrative or smart-wallet confirmation, skip the cycle.

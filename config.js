@@ -130,6 +130,7 @@ export const config = {
     minFeeActiveTvlRatio: u.minFeeActiveTvlRatio ?? 0.05,
     minTvl:            u.minTvl            ?? (process.env.DRY_RUN === "true" ? 5_000 : 15_000),
     maxTvl:            u.maxTvl !== undefined ? u.maxTvl : 500_000,
+    maxVolatility:     u.maxVolatility     ?? 1.5,
     minVolume:         u.minVolume         ?? (process.env.DRY_RUN === "true" ? 500 : 1_000),
     minOrganic:        u.minOrganic        ?? 40,
     minQuoteOrganic:   u.minQuoteOrganic   ?? 40,
@@ -384,6 +385,7 @@ export function reloadScreeningThresholds() {
     if (fresh.maxMcap        != null) s.maxMcap        = fresh.maxMcap;
     if (fresh.minTvl         != null) s.minTvl         = fresh.minTvl;
     if (fresh.maxTvl         !== undefined) s.maxTvl   = fresh.maxTvl;
+    if (fresh.maxVolatility   != null) s.maxVolatility   = fresh.maxVolatility;
     if (fresh.minVolume      != null) s.minVolume      = fresh.minVolume;
     if (fresh.minBinStep     != null) s.minBinStep     = fresh.minBinStep;
     if (fresh.maxBinStep     != null) s.maxBinStep     = fresh.maxBinStep;

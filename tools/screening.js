@@ -1214,6 +1214,11 @@ export async function getTopCandidates({ limit = 10 } = {}) {
           pushFilteredReason(filteredOut, p, `volatility ${p.volatility ?? "unknown"} unusable`);
           return false;
         }
+        const maxVol = config.screening.maxVolatility;
+        if (maxVol != null && maxVol > 0 && numeric(p.volatility) > maxVol) {
+          pushFilteredReason(filteredOut, p, `volatility ${numeric(p.volatility)} exceeds ceiling ${maxVol} — IL risk too high`);
+          return false;
+        }
       }
       if (occupiedPools.has(p.pool)) {
         pushFilteredReason(filteredOut, p, "already have an open position in this pool");
