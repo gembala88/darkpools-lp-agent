@@ -251,8 +251,8 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
       let response;
       let usedModel = activeModel;
       // Force a tool call on step 0 for action intents — prevents the model from inventing deploy/close outcomes
-      const ACTION_INTENTS = /\b(deploy|open|add liquidity|close|exit|withdraw|claim|swap|block|unblock)\b/i;
-      let toolChoice = (step === 0 && (ACTION_INTENTS.test(goal) || mustUseRealTool)) ? "required" : "auto";
+      const ACTION_INTENTS = /\b(deploy|open|add liquidity|close|exit|withdraw|claim|swap|block|unblock|screening|get_top_candidates)\b/i;
+      let toolChoice = (step === 0 && (ACTION_INTENTS.test(goal) || mustUseRealTool || agentType === "SCREENER")) ? "required" : "auto";
       let keyRotated = false;
 
       for (let attempt = 0; attempt < 3; attempt++) {
@@ -393,6 +393,24 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
               ? "You have not used any tool yet. This request requires real tool execution or live tool-backed data. Do not answer from memory or inference. Call the appropriate tool first, then report only the real result."
               : "[SYSTEM REMINDER]\nYou have not used any tool yet. This request requires real tool execution or live tool-backed data. Do not answer from memory or inference. Call the appropriate tool first, then report only the real result.",
           });
+          continue;
+        }
+        // Code-fence guard: detect code/explanation writing instead of deciding
+        if (msg.content && /```|example of how|you might use|^def\s+|^import\s+|^class\s+|#.*?example/i.test(msg.content)) {
+          messages.pop();
+          log("agent", "Code-chatter detected — model wrote code/example instead of deciding, re-prompting once");
+          messages.push({
+            role: providerMode === "system" ? "system" : "user",
+            content: providerMode === "system"
+              ? "Do NOT write code or explanations. Either call a tool now, or give your final deploy/NO DEPLOY decision."
+              : "[SYSTEM REMINDER]\nDo NOT write code or explanations. Either call a tool now, or give your final deploy/NO DEPLOY decision.",
+          });
+          // If we already re-prompted once and model still chatters, finalize as NO DEPLOY
+          if (noToolRetryCount >= 1) {
+            log("agent", "Code-chatter persisted after re-prompt — finalizing as NO DEPLOY");
+            return { content: "NO DEPLOY — model failed to produce a valid decision (code chatter).", userMessage: goal };
+          }
+          noToolRetryCount += 1;
           continue;
         }
         log("agent", "Final answer reached");
