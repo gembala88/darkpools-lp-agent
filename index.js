@@ -625,24 +625,40 @@ export async function runScreeningCycle({ silent = false } = {}) {
         }
       } catch (e) { log("screening", `Memory read failed: ${e.message}`); }
     }
-    // Build per-pool and per-token aggregate stats
+    // Also read closed positions from the mode-specific positions file for W/L data
+    const posFileName = process.env.DRY_RUN === "true" ? 'dry-run-positions.json' : null;
+    const closedPositions = [];
+    if (posFileName) {
+      const posPath = repoPath('data', posFileName);
+      if (fs.existsSync(posPath)) {
+        try {
+          const posData = JSON.parse(fs.readFileSync(posPath, 'utf8'));
+          const positions = posData.positions ?? [];
+          for (const p of positions) {
+            if (p.closed_at && p.simulated_pnl_pct != null) {
+              closedPositions.push(p);
+            }
+          }
+        } catch (e) { log("screening", `Positions file read failed: ${e.message}`); }
+      }
+    }
+    // Build per-pool and per-token aggregate stats (deployment-memory verdicts + closed positions)
     const poolStats = {}; // poolAddress -> { wins, losses, total }
     const tokenStats = {}; // baseMint -> { wins, losses, total }
+    function addToStats(map, key, isWin) {
+      if (!key) return;
+      if (!map[key]) map[key] = { wins: 0, losses: 0, total: 0 };
+      map[key].total++;
+      if (isWin) map[key].wins++;
+      else map[key].losses++;
+    }
     for (const d of memDeploys) {
-      const addr = d.poolAddress || d.pool_address;
-      if (addr) {
-        if (!poolStats[addr]) poolStats[addr] = { wins: 0, losses: 0, total: 0 };
-        poolStats[addr].total++;
-        if (d.verdict === 'PROFIT') poolStats[addr].wins++;
-        else if (d.verdict === 'LOSS') poolStats[addr].losses++;
-      }
-      const tMint = d.tokenMint || d.base_mint;
-      if (tMint) {
-        if (!tokenStats[tMint]) tokenStats[tMint] = { wins: 0, losses: 0, total: 0 };
-        tokenStats[tMint].total++;
-        if (d.verdict === 'PROFIT') tokenStats[tMint].wins++;
-        else if (d.verdict === 'LOSS') tokenStats[tMint].losses++;
-      }
+      addToStats(poolStats, d.poolAddress || d.pool_address, d.verdict === 'PROFIT');
+      addToStats(tokenStats, d.tokenMint || d.base_mint, d.verdict === 'PROFIT');
+    }
+    for (const p of closedPositions) {
+      addToStats(poolStats, p.pool_address, Number(p.simulated_pnl_pct) > 0);
+      addToStats(tokenStats, p.base_mint, Number(p.simulated_pnl_pct) > 0);
     }
 
     // Hard filters after token recon — block launchpads, excessive bot holders, and memory-cooldown pools
