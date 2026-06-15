@@ -447,9 +447,10 @@ After executing, write a brief one-line result per position.
       await liveMessage?.note("No tool actions needed.");
     }
 
-    // Trigger screening after management
-    const afterPositions = await getMyPositions({ force: true }).catch(() => null);
-    const afterCount = afterPositions?.positions?.length ?? 0;
+    // Trigger screening after management (use effective count: dry-run positions in DRY RUN, on-chain in live)
+    const afterCount = process.env.DRY_RUN === "true"
+      ? getDryRunPositions().length
+      : (await getMyPositions({ force: true }).catch(() => null))?.positions?.length ?? 0;
     if (afterCount < config.risk.maxPositions && Date.now() - _screeningLastTriggered > screeningCooldownMs) {
       log("cron", `Post-management: ${afterCount}/${config.risk.maxPositions} positions — triggering screening`);
       runScreeningCycle().catch((e) => log("cron_error", `Triggered screening failed: ${e.message}`));
@@ -491,20 +492,22 @@ export async function runScreeningCycle({ silent = false } = {}) {
   let screenReport = null;
   try {
     [prePositions, preBalance] = await Promise.all([getMyPositions({ force: true }), getWalletBalances()]);
-    if (prePositions.total_positions >= config.risk.maxPositions) {
-      log("cron", `Screening skipped — max positions reached (${prePositions.total_positions}/${config.risk.maxPositions})`);
-      screenReport = `Screening skipped — max positions reached (${prePositions.total_positions}/${config.risk.maxPositions}).`;
+    const isDryRun = process.env.DRY_RUN === "true";
+    // In DRY RUN, count open dry-run positions (getMyPositions returns 0 since there's no on-chain activity)
+    const effectiveOpenPositions = isDryRun ? getDryRunPositions().length : prePositions.total_positions;
+    if (effectiveOpenPositions >= config.risk.maxPositions) {
+      log("cron", `Screening skipped — max positions reached (${effectiveOpenPositions}/${config.risk.maxPositions})`);
+      screenReport = `Screening skipped — max positions reached (${effectiveOpenPositions}/${config.risk.maxPositions}).`;
       appendDecision({
         type: "skip",
         actor: "SCREENER",
         summary: "Screening skipped",
-        reason: `Max positions reached (${prePositions.total_positions}/${config.risk.maxPositions})`,
+        reason: `Max positions reached (${effectiveOpenPositions}/${config.risk.maxPositions})`,
       });
       _screeningBusy = false;
       return screenReport;
     }
     const minRequired = config.management.deployAmountSol + config.management.gasReserve;
-    const isDryRun = process.env.DRY_RUN === "true";
     if (!isDryRun && preBalance.sol < minRequired) {
       log("cron", `Screening skipped — insufficient SOL (${preBalance.sol.toFixed(3)} < ${minRequired} needed for deploy + gas)`);
       screenReport = `Screening skipped — insufficient SOL (${preBalance.sol.toFixed(3)} < ${minRequired} needed for deploy + gas).`;

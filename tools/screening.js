@@ -1188,6 +1188,17 @@ export async function getTopCandidates({ limit = 10 } = {}) {
   const { positions } = await getMyPositions();
   const occupiedPools = new Set(positions.map((p) => p.pool));
   const occupiedMints = new Set(positions.map((p) => p.base_mint).filter(Boolean));
+  // In DRY RUN, also exclude pools with open dry-run positions (getMyPositions returns 0 on-chain)
+  if (process.env.DRY_RUN === "true") {
+    try {
+      const { getDryRunPositions } = await import("./dryRunPositions.js");
+      const dryOpen = getDryRunPositions();
+      for (const p of dryOpen) {
+        if (p.pool_address) occupiedPools.add(p.pool_address);
+        if (p.base_mint) occupiedMints.add(p.base_mint);
+      }
+    } catch (e) { /* non-critical */ }
+  }
   const minTvl = Number(config.screening.minTvl ?? 0);
   const maxTvl = config.screening.maxTvl == null ? null : Number(config.screening.maxTvl);
   const minFeeActiveTvlRatio = Number(config.screening.minFeeActiveTvlRatio ?? 0);
