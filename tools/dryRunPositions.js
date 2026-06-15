@@ -29,7 +29,7 @@ async function fetchSolPriceUsd() {
 
 async function fetchPoolState(poolAddress) {
   try {
-    const url = `${POOL_DISCOVERY_BASE}/pools?page_size=1&filter_by=${encodeURIComponent("pool_address=" + poolAddress)}&timeframe=5m`;
+    const url = `${POOL_DISCOVERY_BASE}/pools?page_size=1&filter_by=${encodeURIComponent("pool_address=" + poolAddress)}&timeframe=24h`;
     const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
     if (res.ok) {
       const body = await res.json();
@@ -40,6 +40,8 @@ async function fetchPoolState(poolAddress) {
           price: pool.pool_price ?? null,
           volume24h: pool.volume ?? null,
           feePct: pool.fee_pct ?? null,
+          fee24h: pool.fee ?? null,
+          feeTvlRatio: pool.fee_tvl_ratio ?? null,
         };
       }
     }
@@ -49,12 +51,14 @@ async function fetchPoolState(poolAddress) {
   return null;
 }
 
-function estimateFees(currentState, holdingHours) {
+function estimateFees(currentState, holdingHours, positionValueUsd = 0) {
   if (!currentState) return 0;
-  const vol24h = currentState.volume24h ?? 0;
-  if (vol24h <= 0) return 0;
-  const feeRate = currentState.feePct != null ? currentState.feePct / 100 : 0.003;
-  return vol24h * feeRate * Math.min(holdingHours / 24, 1);
+  const tvl = currentState.tvl ?? 0;
+  if (tvl <= 0 || positionValueUsd <= 0) return 0;
+  const fee24h = currentState.fee24h ?? 0;
+  if (fee24h <= 0) return 0;
+  const share = Math.min(positionValueUsd / tvl, 1);
+  return fee24h * share * Math.min(holdingHours / 24, 1);
 }
 
 function load() {
@@ -196,10 +200,10 @@ export async function evaluateDryRunPositions(currentPositions, managementConfig
       log("dry_run_positions", `priceChange skipped for ${pos.pool_address?.slice(0, 8)} — entryPoolPrice=${entryPoolPrice} currentPrice=${currentPrice}`);
     }
 
-    const feesUsd = estimateFees(state, Math.max(holdingHours, 0.0833));
-    // Convert SOL position amount to USD for fee pct (both parties in USD)
+    // Convert SOL position amount to USD for fee share calculation
     const solPriceUsd = await fetchSolPriceUsd();
     const positionValueUsd = solPriceUsd > 0 ? (pos.amount_y || 0.12) * solPriceUsd : 0;
+    const feesUsd = estimateFees(state, Math.max(holdingHours, 0.0833), positionValueUsd);
     let feePct = 0;
     if (feesUsd > 0 && positionValueUsd > 0) {
       feePct = (feesUsd / positionValueUsd) * 100;
