@@ -11,12 +11,13 @@ const SOL_PRICE_CACHE_TTL_MS = 60_000;
 async function fetchSolPriceUsd() {
   if (Date.now() - _solPriceCache.ts < SOL_PRICE_CACHE_TTL_MS) return _solPriceCache.price;
   try {
-    const res = await fetch(`https://api.jup.ag/price/v2?ids=${SOL_MINT}`, { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(`https://api.jup.ag/price/v3?ids=${SOL_MINT}`, { signal: AbortSignal.timeout(5000) });
     if (res.ok) {
       const body = await res.json();
-      const price = Number(body?.data?.[SOL_MINT]?.price ?? 0);
+      const price = Number(body?.[SOL_MINT]?.usdPrice ?? 0);
       if (price > 0) {
         _solPriceCache = { price, ts: Date.now() };
+        log("dry_run_positions", `fetchSolPriceUsd: SOL=$${price}`);
         return price;
       }
     }
