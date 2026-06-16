@@ -1399,12 +1399,6 @@ export async function getTopCandidates({ limit = 10 } = {}) {
       const confirmation = confirmationByPool.get(pool.pool);
       pool.indicator_confirmation = confirmation || null;
       if (!confirmation || confirmation.confirmed) return true;
-      if (process.env.DRY_RUN === "true") {
-        pool.indicator_penalty = 10;
-        pool.indicator_soft_reject = confirmation.reason;
-        log("screening", `DRY RUN — indicator not confirmed for ${pool.name} (${pool.pool}), soft penalty (-10) instead of reject`);
-        return true;
-      }
       pushFilteredReason(filteredOut, pool, `indicator reject: ${confirmation.reason}`);
       log("screening", `Indicator rejected ${pool.name} (${pool.pool}): ${confirmation.reason}`);
       return false;
