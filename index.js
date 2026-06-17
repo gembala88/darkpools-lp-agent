@@ -573,8 +573,16 @@ export async function runScreeningCycle({ silent = false } = {}) {
         config.screening[key] = val;
       }
     }
-    // Lane maxPositions override for this cycle (deployAmountSol NOT overridden — user's config takes priority)
-    if (laneCfg.maxPositions != null) config.risk.maxPositions = laneCfg.maxPositions;
+    // Lane overrides — skip fields locked via configManagerLockedFields in user-config.json
+    let lockedFields = [];
+    try {
+      const ucPath = repoPath('user-config.json');
+      if (fs.existsSync(ucPath)) {
+        const uc = JSON.parse(fs.readFileSync(ucPath, 'utf8'));
+        lockedFields = Array.isArray(uc.configManagerLockedFields) ? uc.configManagerLockedFields : [];
+      }
+    } catch {}
+    if (laneCfg.maxPositions != null && !lockedFields.includes('maxPositions')) config.risk.maxPositions = laneCfg.maxPositions;
     log("cron", `[SCREENING] Using lane '${_resolvedLane}' thresholds: maxTop10Pct=${config.screening.maxTop10Pct}, maxBotHoldersPct=${config.screening.maxBotHoldersPct}, minTvl=${config.screening.minTvl}, minTokenFeesSol=${config.screening.minTokenFeesSol}, minHolders=${config.screening.minHolders}`);
     const dryRunAlphaOverride = isDryRun ? config.risk.dryRunMinAlphaScore : null;
     const effectiveMinAlpha = dryRunAlphaOverride !== null ? dryRunAlphaOverride : (laneCfg.minLpAlphaScore ?? 70);
