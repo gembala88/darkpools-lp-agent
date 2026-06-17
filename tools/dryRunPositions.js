@@ -37,7 +37,7 @@ async function fetchPoolState(poolAddress) {
       const pool = (body.data || [])[0];
       if (pool) {
         return {
-          tvl: pool.active_tvl ?? pool.tvl ?? null,
+          tvl: pool.tvl ?? pool.active_tvl ?? null,
           price: pool.pool_price ?? null,
           volume24h: pool.volume ?? null,
           feePct: pool.fee_pct ?? null,
@@ -172,6 +172,8 @@ export async function evaluateDryRunPositions(currentPositions, managementConfig
 
   const stopLossPct = managementConfig?.stopLossPct ?? -50;
   const takeProfitPct = managementConfig?.takeProfitPct ?? 15;
+  const quickTakeProfitPct = managementConfig?.quickTakeProfitPct ?? 3;
+  const maxHoldHours = managementConfig?.maxHoldHours ?? 6;
   const dryRunSlippagePct = managementConfig?.dryRunSlippagePct ?? 6;
   const dryRunTxCostPct = 0.1;
 
@@ -228,9 +230,21 @@ export async function evaluateDryRunPositions(currentPositions, managementConfig
       save(data);
     }
 
-    // Auto-close on simulated take-profit / stop-loss
+    // Ordered exit checks: quick-TP → max-hold → full TP → SL (first match wins, never double-close)
+    if (simulatedPnlPct >= quickTakeProfitPct && quickTakeProfitPct < takeProfitPct) {
+      log("dry_run_positions", `[SIM CLOSE] ${pos.pool_name || pos.pool_address?.slice(0, 8)} — quick take-profit at ${simulatedPnlPct.toFixed(1)}%`);
+      const closed = closeDryRunPosition(pos.id, { pnl_pct: simulatedPnlPct, fees_earned: feesUsd, reason: "quick_take_profit" });
+      results.push({ ...pos, ...closed, status: "closed_qtp" });
+      continue;
+    }
+    if (holdingHours > maxHoldHours && simulatedPnlPct < takeProfitPct) {
+      log("dry_run_positions", `[SIM CLOSE] ${pos.pool_name || pos.pool_address?.slice(0, 8)} — max hold ${holdingHours.toFixed(1)}h exceeded, closing at ${simulatedPnlPct.toFixed(1)}%`);
+      const closed = closeDryRunPosition(pos.id, { pnl_pct: simulatedPnlPct, fees_earned: feesUsd, reason: "max_hold" });
+      results.push({ ...pos, ...closed, status: "closed_max_hold" });
+      continue;
+    }
     if (simulatedPnlPct >= takeProfitPct) {
-      log("dry_run_positions", `[SIM CLOSE] ${pos.pool_name || pos.pool_address?.slice(0, 8)} — take-profit at ${simulatedPnlPct.toFixed(1)}%`);
+      log("dry_run_positions", `[SIM CLOSE] ${pos.pool_name || pos.pool_address?.slice(0, 8)} — full take-profit at ${simulatedPnlPct.toFixed(1)}%`);
       const closed = closeDryRunPosition(pos.id, { pnl_pct: simulatedPnlPct, fees_earned: feesUsd, reason: "take_profit" });
       results.push({ ...pos, ...closed, status: "closed_tp" });
       continue;

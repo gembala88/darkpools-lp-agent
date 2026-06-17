@@ -75,9 +75,38 @@ function estimateFeesEarned(currentState, holdingHours) {
 }
 
 /**
- * Determine final verdict from outcome metrics.
+ * Look up the real PnL from dry-run-positions.json for a given pool address.
+ * Returns { pnl, timestamp } or null if not found / not closed.
  */
-function determineVerdict(outcome) {
+function lookupDryRunPnl(poolAddress) {
+  if (!poolAddress) return null;
+  const posPath = repoPath('data', 'dry-run-positions.json');
+  if (!fs.existsSync(posPath)) return null;
+  try {
+    const data = JSON.parse(fs.readFileSync(posPath, 'utf8'));
+    const positions = data.positions ?? [];
+    // Find closed positions matching this pool — use the most recent
+    const matches = positions
+      .filter(p => p.pool_address === poolAddress && p.closed_at != null && p.simulated_pnl_pct != null)
+      .sort((a, b) => new Date(b.closed_at) - new Date(a.closed_at));
+    if (matches.length > 0) {
+      return { pnl: Number(matches[0].simulated_pnl_pct), timestamp: matches[0].closed_at };
+    }
+  } catch {}
+  return null;
+}
+
+/**
+ * Determine final verdict from outcome metrics.
+ * Uses real dry-run PnL when available (dry-run-positions.json), falls back to TVLΔ/fees.
+ */
+function determineVerdict(outcome, dryRunPnl = null) {
+  // Real PnL from dry-run positions — authoritative when available
+  if (dryRunPnl != null) {
+    if (dryRunPnl > 0) return 'PROFIT';
+    if (dryRunPnl <= 0) return 'LOSS';
+  }
+
   const { tvlChange, feesEarned, priceChange } = outcome;
 
   // Price crash / rug — immediate LOSS regardless of TVL/fees
@@ -163,8 +192,10 @@ export async function checkOutcomes() {
             note: 'SIMULATED (computed from discovery data)',
           };
           deploy.outcome4h = outcome;
-          deploy.verdict = determineVerdict(outcome);
+          const dryRunPnl = lookupDryRunPnl(deploy.poolAddress || deploy.pool_address);
+          deploy.verdict = determineVerdict(outcome, dryRunPnl?.pnl ?? null);
           changed = true;
+          if (dryRunPnl) log("deploy", `[OUTCOME] ${deploy.name} real dry-run PnL=${dryRunPnl.pnl.toFixed(2)}% vs TVLΔ-based verdict=${deploy.verdict}`);
 
           log("deploy", `[OUTCOME] ${deploy.name} 4h saved, verdict=${deploy.verdict} — TVLΔ=${(outcome.tvlChange != null ? (outcome.tvlChange * 100).toFixed(1) : '?')}% fees=$${outcome.feesEarned.toFixed(2)}`);
 

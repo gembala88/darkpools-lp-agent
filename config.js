@@ -119,7 +119,7 @@ export const config = {
 
   // ─── Risk Limits ─────────────────────────
   risk: {
-    maxPositions:    u.maxPositions    ?? 3,
+    maxPositions:    u.maxPositions    ?? (process.env.DRY_RUN === "true" ? 5 : 3),
     maxDeployAmount: u.maxDeployAmount ?? 50,
   },
 
@@ -237,11 +237,13 @@ export const config = {
     takeProfitPct:         u.takeProfitPct         ?? u.takeProfitFeePct ?? 8,
     minFeePerTvl24h:       u.minFeePerTvl24h       ?? 7,
     minAgeBeforeYieldCheck: u.minAgeBeforeYieldCheck ?? 60, // minutes before low yield can trigger close
-    minSolToOpen:          u.minSolToOpen          ?? 0.55,
-    deployAmountSol:       u.deployAmountSol       ?? 0.5,
+    minSolToOpen:          u.minSolToOpen          ?? (process.env.DRY_RUN === "true" ? 0.15 : 0.55),
+    deployAmountSol:       u.deployAmountSol       ?? (process.env.DRY_RUN === "true" ? 0.15 : 0.5),
     gasReserve:            u.gasReserve            ?? 0.2,
     positionSizePct:       u.positionSizePct       ?? 0.35,
     dryRunSlippagePct:     u.dryRunSlippagePct     ?? 6,
+    maxHoldHours:          u.maxHoldHours          ?? 6,
+    quickTakeProfitPct:    u.quickTakeProfitPct    ?? 3,
     liveSlippageBps:       u.liveSlippageBps       ?? 300,
     liveMaxSolLoss:        u.liveMaxSolLoss        ?? 0.05,
     // Trailing take-profit
@@ -413,6 +415,8 @@ export function reloadScreeningThresholds() {
     if (fresh.deployAmountSol != null) config.management.deployAmountSol = fresh.deployAmountSol;
     if (fresh.gasReserve != null) config.management.gasReserve = fresh.gasReserve;
     if (fresh.dryRunSlippagePct != null) config.management.dryRunSlippagePct = fresh.dryRunSlippagePct;
+    if (fresh.maxHoldHours != null) config.management.maxHoldHours = fresh.maxHoldHours;
+    if (fresh.quickTakeProfitPct != null) config.management.quickTakeProfitPct = fresh.quickTakeProfitPct;
     if (fresh.liveSlippageBps != null) config.management.liveSlippageBps = fresh.liveSlippageBps;
     if (fresh.liveMaxSolLoss != null) config.management.liveMaxSolLoss = fresh.liveMaxSolLoss;
     if (fresh.positionSizePct != null) config.management.positionSizePct = fresh.positionSizePct;

@@ -1283,16 +1283,17 @@ export async function getTopCandidates({ limit = 10 } = {}) {
   }
 
   // Multi-source enrichment: cross-reference Birdeye, Jupiter, DexScreener
+  // Enrich only top 5 pools for speed — un-enriched pools still pass with pool-direct fields
+  const ENRICH_LIMIT = 5;
   if (eligible.length > 0) {
-    const { pools: enriched, filtered: enrichFiltered } = await enrichCandidates(eligible, config.screening);
+    const topPools = eligible.slice(0, ENRICH_LIMIT);
+    const restPools = eligible.slice(ENRICH_LIMIT);
+    const { pools: enriched, filtered: enrichFiltered } = await enrichCandidates(topPools, config.screening);
     for (const f of enrichFiltered) {
       pushFilteredReason(filteredOut, f, f.reason);
       log("screening", `Enrichment filtered ${f.name || 'unknown'} — ${f.reason}`);
     }
-    eligible.splice(0, eligible.length, ...enriched);
-    if (eligible.length < enrichFiltered.length) {
-      log("screening", `Enrichment removed ${enrichFiltered.length - eligible.length} candidate(s)`);
-    }
+    eligible.splice(0, eligible.length, ...enriched, ...restPools);
   }
 
   // Apply mcap/holders/volume filters using best available data (pool direct fields + enrichment)
