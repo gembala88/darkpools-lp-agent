@@ -130,6 +130,7 @@ export function trackDryRunPosition({
     key_factor: key_factor || null,
     deployed_at: new Date().toISOString(),
     closed_at: null,
+    peak_pnl_pct: null,
     simulated_pnl_pct: null,
     simulated_fees: null,
     close_reason: null,
@@ -171,7 +172,8 @@ export async function evaluateDryRunPositions(currentPositions, managementConfig
   if (open.length === 0) return [];
 
   const stopLossPct = managementConfig?.stopLossPct ?? -50;
-  const takeProfitPct = managementConfig?.takeProfitPct ?? 15;
+  const trailingTriggerPct = managementConfig?.trailingTriggerPct ?? 4;
+  const trailingDropPct = managementConfig?.trailingDropPct ?? 5;
   const quickTakeProfitPct = managementConfig?.quickTakeProfitPct ?? 3;
   const maxHoldHours = managementConfig?.maxHoldHours ?? 6;
   const dryRunSlippagePct = managementConfig?.dryRunSlippagePct ?? 6;
@@ -221,38 +223,57 @@ export async function evaluateDryRunPositions(currentPositions, managementConfig
 
     log("dry_run_positions", `PnL breakdown for ${pos.pool_name || pos.pool_address?.slice(0, 8)}: price=${pricePct.toFixed(2)}% fees=${feePct.toFixed(2)}% slippage=-${dryRunSlippagePct}% txCost=-${dryRunTxCostPct}% net=${simulatedPnlPct.toFixed(2)}%`);
 
-    // Persist computed values onto the stored position
+    // Persist computed values + update peak PnL (high-water mark for trailing)
     const data = load();
     const stored = data.positions.find(p => p.id === pos.id);
     if (stored) {
       stored.simulated_pnl_pct = simulatedPnlPct;
       stored.simulated_fees = feesUsd;
+      if (simulatedPnlPct != null) {
+        const oldPeak = stored.peak_pnl_pct;
+        stored.peak_pnl_pct = oldPeak != null ? Math.max(oldPeak, simulatedPnlPct) : simulatedPnlPct;
+        if (oldPeak != null && stored.peak_pnl_pct > oldPeak && stored.peak_pnl_pct >= trailingTriggerPct && oldPeak < trailingTriggerPct) {
+          log("dry_run_positions", `trailing activated at +${simulatedPnlPct.toFixed(2)}% for ${pos.pool_name || pos.pool_address?.slice(0, 8)} — peak now ${stored.peak_pnl_pct.toFixed(2)}%`);
+        }
+      }
       save(data);
     }
 
-    // Ordered exit checks: quick-TP → max-hold → full TP → SL (first match wins, never double-close)
-    if (simulatedPnlPct >= quickTakeProfitPct && quickTakeProfitPct < takeProfitPct) {
-      log("dry_run_positions", `[SIM CLOSE] ${pos.pool_name || pos.pool_address?.slice(0, 8)} — quick take-profit at ${simulatedPnlPct.toFixed(1)}%`);
-      const closed = closeDryRunPosition(pos.id, { pnl_pct: simulatedPnlPct, fees_earned: feesUsd, reason: "quick_take_profit" });
-      results.push({ ...pos, ...closed, status: "closed_qtp" });
+    // Exit checks — first match wins, never double-close.
+    // Order: a) stop_loss → b) trailing_tp → c) max_hold → d) quick_tp
+    // Static takeProfitPct (+8%) REMOVED — trailing governs winners; quickTP handles small ones.
+    const peakPnl = pos.peak_pnl_pct != null ? pos.peak_pnl_pct : (stored?.peak_pnl_pct ?? simulatedPnlPct ?? 0);
+    const trailingActive = peakPnl >= trailingTriggerPct;
+
+    // a) stop_loss: hard floor
+    if (simulatedPnlPct <= stopLossPct) {
+      log("dry_run_positions", `[SIM CLOSE] ${pos.pool_name || pos.pool_address?.slice(0, 8)} — stop-loss at ${simulatedPnlPct.toFixed(1)}%`);
+      const closed = closeDryRunPosition(pos.id, { pnl_pct: simulatedPnlPct, fees_earned: feesUsd, reason: "stop_loss" });
+      results.push({ ...pos, ...closed, status: "closed_sl" });
       continue;
     }
-    if (holdingHours > maxHoldHours && simulatedPnlPct < takeProfitPct) {
+
+    // b) trailing_tp: peak reached trailingTriggerPct AND dropped more than trailingDropPct from peak
+    if (trailingActive && simulatedPnlPct < peakPnl - trailingDropPct) {
+      log("dry_run_positions", `trailing_tp close for ${pos.pool_name || pos.pool_address?.slice(0, 8)}: peak +${peakPnl.toFixed(2)}% → +${simulatedPnlPct.toFixed(2)}%, drop ${(peakPnl - simulatedPnlPct).toFixed(2)}% > ${trailingDropPct}%`);
+      const closed = closeDryRunPosition(pos.id, { pnl_pct: simulatedPnlPct, fees_earned: feesUsd, reason: "trailing_tp" });
+      results.push({ ...pos, ...closed, status: "closed_trailing" });
+      continue;
+    }
+
+    // c) max_hold: open longer than maxHoldHours and never triggered trailing (not clearly profitable)
+    if (holdingHours > maxHoldHours && !trailingActive) {
       log("dry_run_positions", `[SIM CLOSE] ${pos.pool_name || pos.pool_address?.slice(0, 8)} — max hold ${holdingHours.toFixed(1)}h exceeded, closing at ${simulatedPnlPct.toFixed(1)}%`);
       const closed = closeDryRunPosition(pos.id, { pnl_pct: simulatedPnlPct, fees_earned: feesUsd, reason: "max_hold" });
       results.push({ ...pos, ...closed, status: "closed_max_hold" });
       continue;
     }
-    if (simulatedPnlPct >= takeProfitPct) {
-      log("dry_run_positions", `[SIM CLOSE] ${pos.pool_name || pos.pool_address?.slice(0, 8)} — full take-profit at ${simulatedPnlPct.toFixed(1)}%`);
-      const closed = closeDryRunPosition(pos.id, { pnl_pct: simulatedPnlPct, fees_earned: feesUsd, reason: "take_profit" });
-      results.push({ ...pos, ...closed, status: "closed_tp" });
-      continue;
-    }
-    if (simulatedPnlPct <= stopLossPct) {
-      log("dry_run_positions", `[SIM CLOSE] ${pos.pool_name || pos.pool_address?.slice(0, 8)} — stop-loss at ${simulatedPnlPct.toFixed(1)}%`);
-      const closed = closeDryRunPosition(pos.id, { pnl_pct: simulatedPnlPct, fees_earned: feesUsd, reason: "stop_loss" });
-      results.push({ ...pos, ...closed, status: "closed_sl" });
+
+    // d) quick_tp: small winner that never reached trailing trigger — lock it early
+    if (simulatedPnlPct >= quickTakeProfitPct && !trailingActive) {
+      log("dry_run_positions", `[SIM CLOSE] ${pos.pool_name || pos.pool_address?.slice(0, 8)} — quick take-profit at ${simulatedPnlPct.toFixed(1)}% (never activated trailing)`);
+      const closed = closeDryRunPosition(pos.id, { pnl_pct: simulatedPnlPct, fees_earned: feesUsd, reason: "quick_take_profit" });
+      results.push({ ...pos, ...closed, status: "closed_qtp" });
       continue;
     }
 

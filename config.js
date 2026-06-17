@@ -249,7 +249,7 @@ export const config = {
     // Trailing take-profit
     trailingTakeProfit:    u.trailingTakeProfit    ?? true,
     trailingTriggerPct:    u.trailingTriggerPct    ?? 4,    // activate trailing at X% PnL
-    trailingDropPct:       u.trailingDropPct       ?? 2,  // close when drops X% from peak
+    trailingDropPct:       u.trailingDropPct       ?? 5,  // close when drops X% from peak
     pnlSanityMaxDiffPct:   u.pnlSanityMaxDiffPct   ?? 5,    // max allowed diff between reported and derived pnl % before ignoring a tick
     // SOL mode — positions, PnL, and balances reported in SOL instead of USD
     solMode:               u.solMode               ?? false,
