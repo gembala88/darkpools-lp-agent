@@ -1,6 +1,8 @@
 import { Logger } from '../logging/logger.js';
 import { engines } from '../engines/index.js';
 import { aiEngines } from '../ai/index.js';
+// @ts-expect-error repo-root.js is outside src/, no declaration file
+import { repoPath } from '../../repo-root.js';
 
 interface ConfigChange {
   key: string;
@@ -30,8 +32,7 @@ export class ConfigManagerService {
   private getLockedFields(): string[] {
     try {
       const fs = require('fs') as typeof import('fs');
-      const path = require('path') as typeof import('path');
-      const configPath = path.join(process.cwd(), 'user-config.json');
+      const configPath = repoPath('user-config.json');
       if (fs.existsSync(configPath)) {
         const data = JSON.parse(fs.readFileSync(configPath, 'utf8'));
         return Array.isArray(data.configManagerLockedFields) ? data.configManagerLockedFields : [];
