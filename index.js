@@ -1136,12 +1136,17 @@ Summarize the current portfolio health, total fees earned, and performance of al
 
   // Config Manager — every 2 hours (autonomous settings optimizer)
   const configManager = new ConfigManagerService();
-  const configManagerInterval = setInterval(() => {
-    configManager.run().catch(err => log("cron_error", `Config Manager failed: ${err.message}`));
-  }, 2 * 60 * 60 * 1000);
-  setTimeout(() => {
-    configManager.run().catch(err => log("cron_error", `Config Manager startup run failed: ${err.message}`));
-  }, 5 * 60 * 1000);
+  if (config.enableConfigManager) {
+    const configManagerInterval = setInterval(() => {
+      configManager.run().catch(err => log("cron_error", `Config Manager failed: ${err.message}`));
+    }, 2 * 60 * 60 * 1000);
+    setTimeout(() => {
+      configManager.run().catch(err => log("cron_error", `Config Manager startup run failed: ${err.message}`));
+    }, 5 * 60 * 1000);
+    log("cron", "Config Manager enabled — running every 2h");
+  } else {
+    log("cron", "Config Manager disabled via config — user-config values will not be auto-changed");
+  }
 
   // Lightweight 30s PnL poller — updates trailing TP state between management cycles, no LLM
   let _pnlPollBusy = false;

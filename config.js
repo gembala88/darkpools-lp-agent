@@ -116,6 +116,7 @@ export function updateActiveLaneSetting(value) {
 export const config = {
   // ─── Behaviour Flags ─────────────────────
   enableAutoPromote: u.enableAutoPromote ?? false,
+  enableConfigManager: u.enableConfigManager ?? true,
 
   // ─── Risk Limits ─────────────────────────
   risk: {
@@ -425,6 +426,7 @@ export function reloadScreeningThresholds() {
     if (fresh.maxDeployAmount != null) config.risk.maxDeployAmount = fresh.maxDeployAmount;
     if (fresh.dryRunMinAlphaScore != null) config.risk.dryRunMinAlphaScore = fresh.dryRunMinAlphaScore;
     if (fresh.maxSteps != null) config.llm.maxSteps = fresh.maxSteps;
+    if (fresh.enableConfigManager !== undefined) config.enableConfigManager = fresh.enableConfigManager;
     const minBinsBelow = numericConfig(fresh.minBinsBelow) ?? config.strategy.minBinsBelow;
     const maxBinsBelow = numericConfig(fresh.maxBinsBelow) ?? numericConfig(fresh.binsBelow) ?? config.strategy.maxBinsBelow;
     const defaultBinsBelow = numericConfig(fresh.defaultBinsBelow) ?? numericConfig(fresh.binsBelow) ?? config.strategy.defaultBinsBelow ?? maxBinsBelow;
