@@ -83,8 +83,35 @@ export async function getWalletBalances() {
 
   const HELIUS_KEY = process.env.HELIUS_API_KEY;
   if (!HELIUS_KEY) {
-    log("wallet_error", "HELIUS_API_KEY not set in .env");
-    return { wallet: walletAddress, sol: 0, sol_price: 0, sol_usd: 0, usdc: 0, tokens: [], total_usd: 0, error: "Helius API key missing" };
+    log("wallet_error", "HELIUS_API_KEY not set — falling back to RPC balance");
+    try {
+      const connection = getConnection();
+      const balance = await connection.getBalance(new PublicKey(walletAddress));
+      const solBalance = balance / LAMPORTS_PER_SOL;
+      // Fetch SOL price from Jupiter (lightweight, no API key needed)
+      let solPrice = 0;
+      try {
+        const priceRes = await fetch("https://api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112", { signal: AbortSignal.timeout(5000) });
+        if (priceRes.ok) {
+          const priceData = await priceRes.json();
+          solPrice = priceData?.data?.So11111111111111111111111111111111111111112?.usdPrice ?? 0;
+        }
+      } catch {}
+      const solUsd = solBalance * solPrice;
+      return {
+        wallet: walletAddress,
+        sol: Math.round(solBalance * 1e6) / 1e6,
+        sol_price: Math.round(solPrice * 100) / 100,
+        sol_usd: Math.round(solUsd * 100) / 100,
+        usdc: 0,
+        tokens: [],
+        total_usd: Math.round(solUsd * 100) / 100,
+        rpc_fallback: true,
+      };
+    } catch (rpcErr) {
+      log("wallet_error", `RPC balance fallback also failed: ${rpcErr.message}`);
+      return { wallet: walletAddress, sol: 0, sol_price: 0, sol_usd: 0, usdc: 0, tokens: [], total_usd: 0, error: `Helius + RPC fallback failed: ${rpcErr.message}` };
+    }
   }
 
   try {
@@ -126,16 +153,44 @@ export async function getWalletBalances() {
     };
   } catch (error) {
     log("wallet_error", error.message);
-    return {
-      wallet: walletAddress,
-      sol: 0,
-      sol_price: 0,
-      sol_usd: 0,
-      usdc: 0,
-      tokens: [],
-      total_usd: 0,
-      error: error.message,
-    };
+    // Fallback: try direct RPC balance
+    try {
+      const connection = getConnection();
+      const balance = await connection.getBalance(new PublicKey(walletAddress));
+      const solBalance = balance / LAMPORTS_PER_SOL;
+      let solPrice = 0;
+      try {
+        const priceRes = await fetch("https://api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112", { signal: AbortSignal.timeout(5000) });
+        if (priceRes.ok) {
+          const priceData = await priceRes.json();
+          solPrice = priceData?.data?.So11111111111111111111111111111111111111112?.usdPrice ?? 0;
+        }
+      } catch {}
+      const solUsd = solBalance * solPrice;
+      log("wallet", `Helius failed — RPC fallback balance: ${solBalance} SOL`);
+      return {
+        wallet: walletAddress,
+        sol: Math.round(solBalance * 1e6) / 1e6,
+        sol_price: Math.round(solPrice * 100) / 100,
+        sol_usd: Math.round(solUsd * 100) / 100,
+        usdc: 0,
+        tokens: [],
+        total_usd: Math.round(solUsd * 100) / 100,
+        rpc_fallback: true,
+      };
+    } catch (rpcErr) {
+      log("wallet_error", `Helius + RPC fallback failed: ${rpcErr.message}`);
+      return {
+        wallet: walletAddress,
+        sol: 0,
+        sol_price: 0,
+        sol_usd: 0,
+        usdc: 0,
+        tokens: [],
+        total_usd: 0,
+        error: `Helius + RPC fallback failed: ${rpcErr.message}`,
+      };
+    }
   }
 }
 

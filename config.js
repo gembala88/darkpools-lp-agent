@@ -120,7 +120,7 @@ export const config = {
 
   // ─── Risk Limits ─────────────────────────
   risk: {
-    maxPositions:    u.maxPositions    ?? (process.env.DRY_RUN === "true" ? 5 : 3),
+    maxPositions:    u.maxPositions    ?? 5,
     maxDeployAmount: u.maxDeployAmount ?? 50,
     dryRunMinAlphaScore: u.dryRunMinAlphaScore ?? 15,
   },
@@ -130,10 +130,10 @@ export const config = {
     source:            u.screeningSource    ?? "meteora", // meteora | gmgn
     excludeHighSupplyConcentration: u.excludeHighSupplyConcentration ?? true,
     minFeeActiveTvlRatio: u.minFeeActiveTvlRatio ?? 0.05,
-    minTvl:            u.minTvl            ?? (process.env.DRY_RUN === "true" ? 5_000 : 15_000),
+    minTvl:            u.minTvl            ?? 5_000,
     maxTvl:            u.maxTvl !== undefined ? u.maxTvl : 500_000,
     maxVolatility:     u.maxVolatility     ?? 1.5,
-    minVolume:         u.minVolume         ?? (process.env.DRY_RUN === "true" ? 500 : 1_000),
+    minVolume:         u.minVolume         ?? 500,
     minOrganic:        u.minOrganic        ?? 40,
     minQuoteOrganic:   u.minQuoteOrganic   ?? 40,
     minHolders:        u.minHolders        ?? 300,
@@ -143,7 +143,7 @@ export const config = {
     maxBinStep:        u.maxBinStep        ?? 125,
     timeframe:         u.timeframe         ?? "5m",
     category:          u.category          ?? "trending",
-    minTokenFeesSol:   u.minTokenFeesSol   ?? (process.env.DRY_RUN === "true" ? 5 : 30),  // global fees paid (priority+jito tips). below = bundled/scam
+    minTokenFeesSol:   u.minTokenFeesSol   ?? 5,  // global fees paid (priority+jito tips). below = bundled/scam
     useDiscordSignals: u.useDiscordSignals ?? false,
     discordSignalMode: u.discordSignalMode ?? "merge", // merge | only
     avoidPvpSymbols:   u.avoidPvpSymbols   ?? true, // avoid exact-symbol rivals with real active pools
@@ -155,8 +155,8 @@ export const config = {
     minTokenAgeHours:   u.minTokenAgeHours   ?? null, // null = no minimum
     maxTokenAgeHours:   u.maxTokenAgeHours   ?? null, // null = no maximum
     // Source-level discovery filters (pools below these thresholds never enter the candidate list)
-    minTvlDiscovery:    u.minTvlDiscovery    ?? (process.env.DRY_RUN === "true" ? 15_000 : 50_000),  // API-level TVL floor — junk pools filtered at source
-    minVolumeDiscovery: u.minVolumeDiscovery ?? (process.env.DRY_RUN === "true" ? 15_000 : 50_000),  // API-level volume floor
+    minTvlDiscovery:    u.minTvlDiscovery    ?? 15_000,  // API-level TVL floor — junk pools filtered at source
+    minVolumeDiscovery: u.minVolumeDiscovery ?? 15_000,  // API-level volume floor
     discoverySortBy:    u.discoverySortBy    ?? "volume:desc", // sort pools by volume descending at API level
     // Non-Meteora discovery sources (all disabled by default — only Meteora DLMM is deployable)
     enableDexscreener:  u.enableDexscreener  ?? false,
@@ -239,8 +239,8 @@ export const config = {
     takeProfitPct:         u.takeProfitPct         ?? u.takeProfitFeePct ?? 8,
     minFeePerTvl24h:       u.minFeePerTvl24h       ?? 7,
     minAgeBeforeYieldCheck: u.minAgeBeforeYieldCheck ?? 60, // minutes before low yield can trigger close
-    minSolToOpen:          u.minSolToOpen          ?? (process.env.DRY_RUN === "true" ? 0.15 : 0.55),
-    deployAmountSol:       u.deployAmountSol       ?? (process.env.DRY_RUN === "true" ? 0.15 : 0.5),
+    minSolToOpen:          u.minSolToOpen          ?? 0.15,
+    deployAmountSol:       u.deployAmountSol       ?? 0.15,
     gasReserve:            u.gasReserve            ?? 0.2,
     positionSizePct:       u.positionSizePct       ?? 0.35,
     dryRunSlippagePct:     u.dryRunSlippagePct     ?? 6,

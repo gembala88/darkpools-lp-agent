@@ -45,6 +45,20 @@ import { log, logAction } from "../logger.js";
 import { notify, notifyDeploy, notifyClose, notifySwap } from "../telegram.js";
 import { trackDryRunPosition } from "./dryRunPositions.js";
 
+// ─── Live-mode circuit breaker ─────────────────────────────────────────
+// Tracks consecutive deploy failures in live mode. After MAX_FAILURES,
+// blocks further deploys until next cycle or manual reset.
+const LIVE_MAX_CONSECUTIVE_FAILURES = 5;
+let _consecutiveDeployFailures = 0;
+
+export function resetDeployCircuitBreaker() {
+  _consecutiveDeployFailures = 0;
+}
+
+export function getDeployCircuitBreakerStatus() {
+  return { failures: _consecutiveDeployFailures, maxFailures: LIVE_MAX_CONSECUTIVE_FAILURES, blocked: _consecutiveDeployFailures >= LIVE_MAX_CONSECUTIVE_FAILURES };
+}
+
 const SENSITIVE_CONFIG_KEYS = new Set([
   "gmgnApiKey",
   "hiveMindApiKey",
@@ -667,6 +681,19 @@ export async function executeTool(name, args) {
     const duration = Date.now() - startTime;
     const success = result?.success !== false && !result?.error;
 
+    // Track consecutive deploy failures in live mode for circuit breaker
+    if (name === "deploy_position" && process.env.DRY_RUN !== "true") {
+      if (result?.dry_run) {
+        // Dry-run deploys don't affect live circuit breaker
+      } else if (success && !result?.blocked) {
+        _consecutiveDeployFailures = 0;
+        log("deploy", `Circuit breaker reset — live deploy succeeded`);
+      } else {
+        _consecutiveDeployFailures++;
+        log("deploy", `Circuit breaker: ${_consecutiveDeployFailures}/${LIVE_MAX_CONSECUTIVE_FAILURES} consecutive live deploy failures`);
+      }
+    }
+
     logAction({
       tool: name,
       args,
@@ -1025,6 +1052,14 @@ async function runSafetyChecks(name, args) {
             reason: `Daily loss limit (${limit} SOL) reached — ${_liveDailyPnl.realizedLossSol.toFixed(3)} SOL lost today. New openings blocked until limit resets tomorrow.`,
           };
         }
+      }
+
+      // Live-mode circuit breaker — too many consecutive deploy failures
+      if (process.env.DRY_RUN !== "true" && _consecutiveDeployFailures >= LIVE_MAX_CONSECUTIVE_FAILURES) {
+        return {
+          pass: false,
+          reason: `Circuit breaker active — ${_consecutiveDeployFailures} consecutive deploy failures. Reset on next screening cycle.`,
+        };
       }
 
       // Check SOL balance

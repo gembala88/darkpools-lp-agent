@@ -646,8 +646,9 @@ export async function runScreeningCycle({ silent = false } = {}) {
         }
       } catch (e) { log("screening", `Memory read failed: ${e.message}`); }
     }
-    // Also read closed positions from the mode-specific positions file for W/L data
-    const posFileName = process.env.DRY_RUN === "true" ? 'dry-run-positions.json' : null;
+    // Also read closed positions from dry-run-positions.json for PnL win/loss data
+    // (may not exist in live-only setups — handled gracefully)
+    const posFileName = 'dry-run-positions.json';
     const closedPositions = [];
     if (posFileName) {
       const posPath = repoPath('data', posFileName);

@@ -848,15 +848,16 @@ export async function deployPosition({
   }
 
   // Pre-flight balance check in LIVE mode
+  let preBalanceSol = null;
   if (process.env.DRY_RUN !== "true") {
-    const wallet = getWallet();
-    const balance = await getConnection().getBalance(wallet.publicKey);
-    const balanceSol = balance / 1e9;
+    const walletLocal = getWallet();
+    const balance = await getConnection().getBalance(walletLocal.publicKey);
+    preBalanceSol = balance / 1e9;
     const needed = finalAmountY + (config.management.gasReserve ?? 0.2);
-    if (balanceSol < needed) {
-      throw new Error(`Insufficient SOL balance: ${balanceSol.toFixed(4)} SOL available, need ${needed.toFixed(2)} SOL for deploy (${finalAmountY} + ${config.management.gasReserve ?? 0.2} reserve)`);
+    if (preBalanceSol < needed) {
+      throw new Error(`Insufficient SOL balance: ${preBalanceSol.toFixed(4)} SOL available, need ${needed.toFixed(2)} SOL for deploy (${finalAmountY} + ${config.management.gasReserve ?? 0.2} reserve)`);
     }
-    log("deploy", `Balance check passed: ${balanceSol.toFixed(4)} SOL ≥ ${needed.toFixed(2)} SOL needed`);
+    log("deploy", `Balance check passed: ${preBalanceSol.toFixed(4)} SOL ≥ ${needed.toFixed(2)} SOL needed`);
   }
 
   if (shouldUseLpAgentRelayForDeploy()) {
@@ -1075,6 +1076,20 @@ export async function deployPosition({
       } else {
         log("deploy", `On-chain confirmed: position ${confirmed.position?.slice(0, 8)} for pool ${pool_address?.slice(0, 8)}`);
         newPosition = { publicKey: { toString: () => confirmed.position } };
+      }
+    }
+
+    // Post-deploy balance sanity check in LIVE mode — warn if wallet drain exceeds expected
+    if (process.env.DRY_RUN !== "true") {
+      try {
+        const postBalance = await getConnection().getBalance(wallet.publicKey);
+        const maxExpectedDrain = finalAmountY + 0.01; // deploy amount + generous fee/rent buffer
+        const drained = preBalanceSol - postBalance / 1e9;
+        if (drained > maxExpectedDrain) {
+          log("deploy_warn", `Post-deploy SOL drain ${drained.toFixed(4)} SOL exceeds expected ${maxExpectedDrain.toFixed(4)} SOL (deployed ${finalAmountY}). Check wallet.`);
+        }
+      } catch (e) {
+        log("deploy_warn", `Post-deploy balance check failed: ${e.message}`);
       }
     }
 
