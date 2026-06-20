@@ -148,6 +148,14 @@ function shouldUsePnlRecheck() {
   return !config.api.lpAgentRelayEnabled;
 }
 
+function _persistLiveTradingPaused(paused) {
+  try {
+    const uc = JSON.parse(fs.readFileSync(repoPath("user-config.json"), "utf-8"));
+    uc.liveTradingPaused = paused;
+    fs.writeFileSync(repoPath("user-config.json"), JSON.stringify(uc, null, 2));
+  } catch {}
+}
+
 function schedulePeakConfirmation(positionAddress) {
   if (!positionAddress || _peakConfirmTimers.has(positionAddress)) return;
 
@@ -2526,11 +2534,21 @@ async function telegramHandler(msg) {
   if (text === "/pause") {
     stopCronJobs();
     cronStarted = false;
-    await sendMessage("⏸ Paused autonomous cycles. Telegram control still works. Use /resume to start again.").catch(() => {});
+    let msg = "⏸ Paused autonomous cycles. Telegram control still works. Use /resume to start again.";
+    if (process.env.DRY_RUN !== "true") {
+      config.management.liveTradingPaused = true;
+      _persistLiveTradingPaused(true);
+      msg += "\n\nLive trading kill switch activated — no new positions will open even if cron resumes.";
+    }
+    await sendMessage(msg).catch(() => {});
     return;
   }
 
   if (text === "/resume") {
+    if (process.env.DRY_RUN !== "true" && config.management.liveTradingPaused) {
+      config.management.liveTradingPaused = false;
+      _persistLiveTradingPaused(false);
+    }
     if (!cronStarted) {
       cronStarted = true;
       timers.managementLastRun = Date.now();
@@ -2578,8 +2596,17 @@ async function telegramHandler(msg) {
 
   if (text === "/mode") {
     const isDryRun = process.env.DRY_RUN === 'true';
+    const isLive = !isDryRun && process.env.ENABLE_REAL_DEPLOYMENT === 'true';
+    const paused = config.management.liveTradingPaused;
+    let safetyBlock = "";
+    if (!isDryRun) {
+      safetyBlock = `\n- Deploy Amount: ${config.management.deployAmountSol} SOL (live: ${config.management.liveDeployAmountSol} SOL)\n- Max Positions: ${config.risk.maxPositions} (live: ${config.management.liveMaxPositions})\n`;
+      safetyBlock += `- Daily Loss Limit: ${config.management.liveDailyLossLimitSol ?? 0.1} SOL\n`;
+      safetyBlock += `- Kill Switch: ${paused ? "🔴 PAUSED" : "🟢 ACTIVE"}`;
+      if (paused) safetyBlock += `\n- Use /resume to unpause live trading`;
+    }
     await sendMessageWithButtons(
-      `🤖 Agent Mode\n\n- DRY RUN: ${isDryRun ? "✅ ON" : "❌ OFF"}\n- Live Trading: ${!isDryRun && process.env.ENABLE_REAL_DEPLOYMENT === 'true' ? "✅ ON" : "❌ OFF"}\n- Deploy Amount: ${config.management.deployAmountSol} SOL`,
+      `🤖 Agent Mode\n\n- DRY RUN: ${isDryRun ? "✅ ON" : "❌ OFF"}\n- Live Trading: ${isLive ? "✅ ON" : "❌ OFF"}${safetyBlock}`,
       [
         [{ text: "🔄 Toggle DRY RUN", callback_data: "mode:toggle_dryrun" }],
         [{ text: "🔄 Toggle Live Trading", callback_data: "mode:toggle_live" }],
@@ -2706,6 +2733,11 @@ async function telegramHandler(msg) {
         `- Market regime: ${regime}`,
         `- Psychology: ${psychology}`,
         `- Balance: ${isDryRun ? (config.management.dryRunVirtualBalance || 2.0) + " SOL (virtual/simulated)" : (wallet.sol ?? "?") + " SOL"}`,
+        ...(!isDryRun ? [
+          `- Deploy: ${config.management.deployAmountSol} SOL | Max: ${config.risk.maxPositions} pos`,
+          `- Daily loss limit: ${config.management.liveDailyLossLimitSol ?? 0.1} SOL`,
+          `- Live trading: ${config.management.liveTradingPaused ? "🔴 PAUSED" : "🟢 ACTIVE"}`,
+        ] : []),
       ].join("\n")).catch(() => {});
     } catch (e) { await sendMessage(`Error: ${e.message}`).catch(() => {}); }
     return;

@@ -248,6 +248,10 @@ export const config = {
     quickTakeProfitPct:    u.quickTakeProfitPct    ?? 3,
     liveSlippageBps:       u.liveSlippageBps       ?? 300,
     liveMaxSolLoss:        u.liveMaxSolLoss        ?? 0.05,
+    liveDeployAmountSol:   u.liveDeployAmountSol   ?? 0.05,
+    liveMaxPositions:      u.liveMaxPositions      ?? 1,
+    liveDailyLossLimitSol: u.liveDailyLossLimitSol ?? 0.1,
+    liveTradingPaused:     u.liveTradingPaused     ?? false,
     // Trailing take-profit
     trailingTakeProfit:    u.trailingTakeProfit    ?? true,
     trailingTriggerPct:    u.trailingTriggerPct    ?? 4,    // activate trailing at X% PnL
@@ -341,6 +345,14 @@ export const config = {
   },
 };
 
+// ─── Live mode: override base sizing with safer live-specific defaults ──
+// This way every consumer of deployAmountSol/maxPositions automatically gets
+// the correct value for the current mode without per-call-site changes.
+if (process.env.DRY_RUN !== "true") {
+  config.management.deployAmountSol = config.management.liveDeployAmountSol;
+  config.risk.maxPositions = config.management.liveMaxPositions;
+}
+
 /**
  * Compute the optimal deploy amount for a given wallet balance.
  * Scales position size with wallet growth (compounding).
@@ -421,6 +433,16 @@ export function reloadScreeningThresholds() {
     if (fresh.quickTakeProfitPct != null) config.management.quickTakeProfitPct = fresh.quickTakeProfitPct;
     if (fresh.liveSlippageBps != null) config.management.liveSlippageBps = fresh.liveSlippageBps;
     if (fresh.liveMaxSolLoss != null) config.management.liveMaxSolLoss = fresh.liveMaxSolLoss;
+    if (fresh.liveDeployAmountSol != null) {
+      config.management.liveDeployAmountSol = fresh.liveDeployAmountSol;
+      if (process.env.DRY_RUN !== "true") config.management.deployAmountSol = fresh.liveDeployAmountSol;
+    }
+    if (fresh.liveMaxPositions != null) {
+      config.management.liveMaxPositions = fresh.liveMaxPositions;
+      if (process.env.DRY_RUN !== "true") config.risk.maxPositions = fresh.liveMaxPositions;
+    }
+    if (fresh.liveDailyLossLimitSol != null) config.management.liveDailyLossLimitSol = fresh.liveDailyLossLimitSol;
+    if (fresh.liveTradingPaused !== undefined) config.management.liveTradingPaused = fresh.liveTradingPaused;
     if (fresh.positionSizePct != null) config.management.positionSizePct = fresh.positionSizePct;
     if (fresh.minSolToOpen != null) config.management.minSolToOpen = fresh.minSolToOpen;
     if (fresh.maxDeployAmount != null) config.risk.maxDeployAmount = fresh.maxDeployAmount;

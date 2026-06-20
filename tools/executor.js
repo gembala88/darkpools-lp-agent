@@ -29,6 +29,7 @@ import { normalizeTimeframe, scaleScreeningToTimeframe } from "../screening-scal
 
 const USER_CONFIG_PATH = repoPath("user-config.json");
 const GMGN_CONFIG_PATH = repoPath("gmgn-config.json");
+const LIVE_DAILY_PNL_PATH = repoPath("data", "live-daily-pnl.json");
 const POOL_DISCOVERY_BASE = "https://pool-discovery-api.datapi.meteora.ag";
 const MIN_VOLATILITY_TIMEFRAME = "30m";
 const TIMEFRAME_MINUTES = {
@@ -41,7 +42,7 @@ const TIMEFRAME_MINUTES = {
   "24h": 1440,
 };
 import { log, logAction } from "../logger.js";
-import { notifyDeploy, notifyClose, notifySwap } from "../telegram.js";
+import { notify, notifyDeploy, notifyClose, notifySwap } from "../telegram.js";
 import { trackDryRunPosition } from "./dryRunPositions.js";
 
 const SENSITIVE_CONFIG_KEYS = new Set([
@@ -802,6 +803,13 @@ export async function executeTool(name, args) {
         }
       } else if (name === "close_position") {
         notifyClose({ pair: result.pool_name || args.position_address?.slice(0, 8), pnlUsd: result.pnl_usd ?? 0, pnlPct: result.pnl_pct ?? 0 }).catch(() => {});
+        // Track live-mode realized PnL for daily loss limit
+        if (process.env.DRY_RUN !== "true") {
+          const pnlPct = result.pnl_pct ?? 0;
+          const pnlSol = pnlPct / 100 * config.management.deployAmountSol;
+          const poolName = result.pool_name || args.position_address?.slice(0, 8) || "unknown";
+          recordLivePnl(pnlSol, poolName);
+        }
         // Note low-yield closes in pool memory so screener avoids redeploying
         if (args.reason && args.reason.toLowerCase().includes("yield")) {
           const poolAddr = result.pool || args.pool_address;
@@ -999,6 +1007,26 @@ async function runSafetyChecks(name, args) {
         };
       }
 
+      // Live-mode kill switch — liveTradingPaused blocks new deploys immediately
+      if (process.env.DRY_RUN !== "true" && config.management.liveTradingPaused) {
+        return {
+          pass: false,
+          reason: `Live trading is paused (liveTradingPaused). Use /resume or set liveTradingPaused=false in user-config.json to re-enable.`,
+        };
+      }
+
+      // Live-mode daily loss limit check
+      if (process.env.DRY_RUN !== "true") {
+        _checkDailyPnlReset();
+        const limit = config.management.liveDailyLossLimitSol ?? 0.1;
+        if (_liveDailyPnl.realizedLossSol >= limit) {
+          return {
+            pass: false,
+            reason: `Daily loss limit (${limit} SOL) reached — ${_liveDailyPnl.realizedLossSol.toFixed(3)} SOL lost today. New openings blocked until limit resets tomorrow.`,
+          };
+        }
+      }
+
       // Check SOL balance
       if (process.env.DRY_RUN !== "true") {
         const balance = await getWalletBalances();
@@ -1052,3 +1080,68 @@ function summarizeResult(result) {
   }
   return result;
 }
+
+// ─── Live-mode daily loss limit tracking ────────────────────────────────
+let _liveDailyPnl = { date: "", realizedLossSol: 0, realizedPnlSol: 0, trades: [] };
+
+function _loadLiveDailyPnl() {
+  try {
+    if (fs.existsSync(LIVE_DAILY_PNL_PATH)) {
+      _liveDailyPnl = JSON.parse(fs.readFileSync(LIVE_DAILY_PNL_PATH, "utf-8"));
+    }
+  } catch {}
+}
+
+function _saveLiveDailyPnl() {
+  try {
+    fs.writeFileSync(LIVE_DAILY_PNL_PATH, JSON.stringify(_liveDailyPnl, null, 2));
+  } catch (e) {
+    log("executor_warn", `Failed to save live daily PnL: ${e.message}`);
+  }
+}
+
+function _checkDailyPnlReset() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (_liveDailyPnl.date !== today) {
+    _liveDailyPnl = { date: today, realizedLossSol: 0, realizedPnlSol: 0, trades: [] };
+    _saveLiveDailyPnl();
+  }
+}
+
+/**
+ * Record realized PnL from a live-mode position close against the daily loss limit.
+ * If the limit is exceeded, auto-pauses live trading and sends a Telegram alert.
+ */
+export function recordLivePnl(pnlSol, poolName) {
+  if (process.env.DRY_RUN === "true") return;
+  _checkDailyPnlReset();
+  _liveDailyPnl.realizedPnlSol += pnlSol;
+  if (pnlSol < 0) _liveDailyPnl.realizedLossSol += Math.abs(pnlSol);
+  _liveDailyPnl.trades.push({ pool: poolName, pnlSol: Number(pnlSol.toFixed(4)), time: new Date().toISOString() });
+  _saveLiveDailyPnl();
+  const limit = config.management.liveDailyLossLimitSol ?? 0.1;
+  if (_liveDailyPnl.realizedLossSol >= limit) {
+    config.management.liveTradingPaused = true;
+    _persistLiveTradingPaused(true);
+    notify(`⚠️ DAILY LOSS LIMIT REACHED: ${_liveDailyPnl.realizedLossSol.toFixed(3)} SOL lost today (limit: ${limit} SOL). New live openings blocked until tomorrow. Existing positions keep their stop-loss.`, "critical").catch(() => {});
+  }
+}
+
+/**
+ * Get current live daily PnL state (read-only snapshot).
+ */
+export function getLiveDailyPnl() {
+  _checkDailyPnlReset();
+  return { ..._liveDailyPnl };
+}
+
+function _persistLiveTradingPaused(paused) {
+  try {
+    const uc = JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf-8"));
+    uc.liveTradingPaused = paused;
+    fs.writeFileSync(USER_CONFIG_PATH, JSON.stringify(uc, null, 2));
+  } catch {}
+}
+
+// Load daily PnL at module init
+_loadLiveDailyPnl();
