@@ -31,6 +31,7 @@ import {
   notify,
   sendToChannel,
   setChannelNotificationLevel,
+  getChannelNotificationLevel,
   showMainMenu,
   showSettingsSubMenu,
   BUTTON_TO_COMMAND,
@@ -234,6 +235,7 @@ async function maybeRunMissedBriefing() {
 function stopCronJobs() {
   for (const task of _cronTasks) task.stop();
   if (_cronTasks._pnlPollInterval) clearInterval(_cronTasks._pnlPollInterval);
+  if (_cronTasks._outcomeCheckInterval) clearInterval(_cronTasks._outcomeCheckInterval);
   _cronTasks = [];
 }
 
@@ -2980,6 +2982,12 @@ if (isMain && isTTY) {
   maybeRunMissedBriefing().catch(() => { });
 
   startPolling(telegramHandler);
+  // Restore persisted notification level
+  try {
+    const uc = JSON.parse(fs.readFileSync(repoPath('user-config.json'), 'utf8'));
+    if (uc.channelNotificationLevel) setChannelNotificationLevel(uc.channelNotificationLevel);
+  } catch {}
+  log("telegram", `Notification level restored: ${getChannelNotificationLevel()}`);
   setTimeout(() => notify("🔄 Agent started", "info").catch(() => {}), 5000);
 
   console.log(`
@@ -3195,6 +3203,12 @@ Focus on: hold duration, entry/exit timing, what win rates look like, whether sc
   startCronJobs();
   maybeRunMissedBriefing().catch(() => { });
   startPolling(telegramHandler);
+  // Restore persisted notification level
+  try {
+    const uc = JSON.parse(fs.readFileSync(repoPath('user-config.json'), 'utf8'));
+    if (uc.channelNotificationLevel) setChannelNotificationLevel(uc.channelNotificationLevel);
+  } catch {}
+  log("telegram", `Notification level restored: ${getChannelNotificationLevel()}`);
   setTimeout(() => notify("🔄 Agent started", "info").catch(() => {}), 5000);
   (async () => {
     try {
