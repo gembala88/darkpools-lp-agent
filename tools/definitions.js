@@ -519,6 +519,34 @@ If no smart wallets are present, rely on fundamentals (fees, volume, organic sco
   {
     type: "function",
     function: {
+      name: "set_screening_profile",
+      description: `Override the screening profile for this cycle.
+Use this when you see a market opportunity that justifies a different screening approach:
+- scalping: quick fee harvesting (30m timeframe, lower thresholds — use during high activity)
+- compounding: longer hold quality pools (24h timeframe, higher thresholds — use for sustainable yield)
+
+The profile controls timeframe and thresholds. If you don't call this, the system auto-selects based on market regime.
+Call this early in the screening cycle (step 1-2) if you want to override the default.`,
+      parameters: {
+        type: "object",
+        properties: {
+          profile: {
+            type: "string",
+            enum: ["scalping", "compounding"],
+            description: "Which screening profile to use for this cycle"
+          },
+          reason: {
+            type: "string",
+            description: "Why you are overriding the auto-selected profile — what market conditions justify this"
+          }
+        },
+        required: ["profile"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "get_token_info",
       description: `Get token data from Jupiter (organic score, holders, audit, price stats, mcap).
 Use this to research a token before deploying or when the user asks about a token.

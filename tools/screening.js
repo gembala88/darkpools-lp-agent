@@ -1002,10 +1002,11 @@ async function enrichCandidates(pools, s) {
       return null;
     });
 
-    const [birdeyeResult, jupiterResult, dexResult] = await Promise.allSettled([
+    const [birdeyeResult, jupiterResult, dexResult, verifyResult] = await Promise.allSettled([
       wrapBirdeye(birdeye.getTokenOverview(mint)),
       wrapJupiter(jupiter.getTokenInfo(mint)),
       dexscreener.searchPairs(mint).catch(() => ({ pairs: [] })),
+      searchAssetsBySymbol(mint).catch(() => null),
     ]);
 
     if (birdeyeResult.status === 'fulfilled' && birdeyeResult.value) {
@@ -1034,6 +1035,15 @@ async function enrichCandidates(pools, s) {
         const bestVolume24h = solPairs.reduce((max, p) => Math.max(max, p.volume?.h24 ?? 0), 0);
         overlay.dexLiquidity = bestLiquidity;
         overlay.dexVolume24h = bestVolume24h;
+      }
+    }
+
+    // Verify token: fetch verified status and JupShield presence from Jupiter DatAPI
+    if (verifyResult.status === 'fulfilled' && verifyResult.value) {
+      const v = Array.isArray(verifyResult.value) ? verifyResult.value[0] : verifyResult.value;
+      if (v) {
+        overlay.jupVerified = v.verified === true;
+        overlay.jupShielded = Array.isArray(v.tags) && (v.tags.includes('shield') || v.tags.includes('jup_shield') || v.tags.includes('verified'));
       }
     }
 
@@ -1294,6 +1304,36 @@ export async function getTopCandidates({ limit = 10 } = {}) {
       log("screening", `Enrichment filtered ${f.name || 'unknown'} — ${f.reason}`);
     }
     eligible.splice(0, eligible.length, ...enriched, ...restPools);
+  }
+
+  // Verified + JupShield hard filter — reject pools whose tokens are NOT verified and do NOT have JupShield
+  // Enriched pools have this data; un-enriched pools pass through with a warning
+  if (eligible.length > 0) {
+    const before = eligible.length;
+    const verifiedEligible = eligible.filter((pool) => {
+      const enr = pool._enrichment || {};
+      if (enr.jupVerified === undefined && enr.jupShielded === undefined) {
+        // Un-enriched pool — cannot verify, pass through
+        return true;
+      }
+      const isVerified = enr.jupVerified === true;
+      const hasShield = enr.jupShielded === true;
+      if (!isVerified && enr.jupVerified === false) {
+        pushFilteredReason(filteredOut, pool, "token not verified on Jupiter — cannot LP");
+        log("screening", `Verified+shield filter: ${pool.name} — token NOT verified`);
+        return false;
+      }
+      if (!hasShield && enr.jupShielded === false) {
+        pushFilteredReason(filteredOut, pool, "token missing JupShield — insufficient protection");
+        log("screening", `Verified+shield filter: ${pool.name} — missing JupShield`);
+        return false;
+      }
+      return true;
+    });
+    eligible.splice(0, eligible.length, ...verifiedEligible);
+    if (eligible.length < before) {
+      log("screening", `Verified+JupShield filter removed ${before - eligible.length} candidate(s)`);
+    }
   }
 
   // Apply mcap/holders/volume filters using best available data (pool direct fields + enrichment)

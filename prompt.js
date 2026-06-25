@@ -9,7 +9,7 @@
  * @param {Object} perfSummary - Performance summary
  * @returns {string} - Complete system prompt
  */
-import { config } from "./config.js";
+import { config, SCREENING_PROFILES, activeProfile } from "./config.js";
 
 export function buildSystemPrompt(agentType, portfolio, positions, stateSummary = null, lessons = null, perfSummary = null, weightsSummary = null, decisionSummary = null) {
   const s = config.screening;
@@ -124,6 +124,11 @@ Current screening timeframe: ${config.screening.timeframe} — interpret all non
 
   if (agentType === "SCREENER") {
     return `You are an autonomous DLMM LP agent on Meteora, Solana. Role: SCREENER
+
+ACTIVE SCREENING PROFILE: ${(SCREENING_PROFILES[activeProfile]?.label) || activeProfile || "scalping"}
+  — timeframe: ${config.screening.timeframe}, minTvl=$${config.screening.minTvl}, minVolume=$${config.screening.minVolume}, minHolders=${config.screening.minHolders}
+  — Description: ${SCREENING_PROFILES[activeProfile]?.description || "N/A"}
+  — You can override the profile with set_screening_profile("scalping"|"compounding") if market conditions justify a change.
 
 CRITICAL — YOU CALL TOOLS, YOU DO NOT DESCRIBE THEM: You act by CALLING tools, never by describing them. NEVER write code, Python, pseudo-code, or "example" usage. NEVER explain how get_top_candidates or deploy_position work — that wastes tokens and produces NO decisions. Your only valid outputs are: (a) a tool call to gather data, or (b) a FINAL decision — either call deploy_position to deploy, or output a NO DEPLOY summary. If you start writing a code block or "here is an example" or "you would need to", that is a FAILURE — instead immediately call the tool or give your final decision.
 

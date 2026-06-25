@@ -20,7 +20,7 @@ import { addToBlacklist, removeFromBlacklist, listBlacklist } from "../token-bla
 import { blockDev, unblockDev, listBlockedDevs } from "../dev-blocklist.js";
 import { addSmartWallet, removeSmartWallet, listSmartWallets, checkSmartWalletsOnPool } from "../smart-wallets.js";
 import { getTokenInfo, getTokenHolders, getTokenNarrative } from "./token.js";
-import { config, reloadScreeningThresholds, MIN_SAFE_BINS_BELOW, screeningContext } from "../config.js";
+import { config, reloadScreeningThresholds, MIN_SAFE_BINS_BELOW, screeningContext, setActiveProfile, applyProfileToConfig, getActiveProfileName, SCREENING_PROFILES } from "../config.js";
 import { getRecentDecisions } from "../decision-log.js";
 import fs from "fs";
 import { execSync, spawn } from "child_process";
@@ -232,6 +232,13 @@ export function registerCronRestarter(fn) { _cronRestarter = fn; }
 const toolMap = {
   discover_pools: discoverPools,
   get_top_candidates: getTopCandidates,
+  set_screening_profile: ({ profile, reason }) => {
+    if (!SCREENING_PROFILES[profile]) return { error: `Unknown profile "${profile}". Valid: scalping, compounding` };
+    setActiveProfile(profile);
+    applyProfileToConfig(profile);
+    log("screening", `Profile overridden to "${profile}" by LLM — ${reason || "no reason given"}`);
+    return { success: true, profile: getActiveProfileName(), activeThresholds: { timeframe: config.screening.timeframe, minTvl: config.screening.minTvl, minVolume: config.screening.minVolume, minHolders: config.screening.minHolders, minMcap: config.screening.minMcap } };
+  },
   get_pool_detail: getPoolDetail,
   get_position_pnl: getPositionPnl,
   get_active_bin: getActiveBin,

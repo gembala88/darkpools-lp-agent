@@ -113,6 +113,82 @@ export function updateActiveLaneSetting(value) {
   activeLaneSetting = value;
 }
 
+// ─── Screening Profiles ──────────────────────
+export const SCREENING_PROFILES = {
+  scalping: {
+    label: "Scalping",
+    description: "Quick fee harvesting on active pools (30m timeframe, lower entry bar)",
+    minMcap: 250_000,
+    minHolders: 500,
+    minVolume: 2_000,
+    minTvl: 5_000,
+    minFeeActiveTvlRatio: 0.003,
+    timeframe: "30m",
+    minOrganic: 40,
+    minQuoteOrganic: 40,
+  },
+  compounding: {
+    label: "Compounding",
+    description: "Longer hold on quality pools (24h timeframe, higher quality bar)",
+    minMcap: 1_000_000,
+    minHolders: 1_000,
+    minVolume: 500_000,
+    minTvl: 50_000,
+    minFeeActiveTvlRatio: 0.003,
+    timeframe: "24h",
+    minOrganic: 40,
+    minQuoteOrganic: 40,
+  },
+};
+
+export let activeProfile = "scalping";
+
+export function setActiveProfile(profileName) {
+  if (SCREENING_PROFILES[profileName]) {
+    activeProfile = profileName;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Auto-select a screening profile based on the resolved lane and market regime.
+ * Profiles override only tuning thresholds — safety fields (maxVolatility, binStep,
+ * excludeHighSupplyConcentration, botHoldersPct, etc.) keep their global values.
+ */
+export function autoSelectProfile(resolvedLane, marketRegime) {
+  if (resolvedLane === "institutional") return "scalping";
+  if (resolvedLane === "moonshot") return "compounding";
+  // balanced / auto: regime-based
+  const trending = ["TRENDING", "BULLISH", "ACCUMULATION"];
+  if (trending.includes(marketRegime)) return "compounding";
+  return "scalping";
+}
+
+/**
+ * Apply a profile's tuning thresholds to config.screening in-place.
+ * Only overrides the fields defined in the profile — safety guards remain.
+ * Returns the profile object or null if profile not found.
+ */
+export function applyProfileToConfig(profileName) {
+  const profile = SCREENING_PROFILES[profileName];
+  if (!profile) return null;
+  const s = config.screening;
+  if (profile.minMcap != null) s.minMcap = profile.minMcap;
+  if (profile.minHolders != null) s.minHolders = profile.minHolders;
+  if (profile.minVolume != null) s.minVolume = profile.minVolume;
+  if (profile.minTvl != null) s.minTvl = profile.minTvl;
+  if (profile.minFeeActiveTvlRatio != null) s.minFeeActiveTvlRatio = profile.minFeeActiveTvlRatio;
+  if (profile.timeframe != null) s.timeframe = profile.timeframe;
+  if (profile.minOrganic != null) s.minOrganic = profile.minOrganic;
+  if (profile.minQuoteOrganic != null) s.minQuoteOrganic = profile.minQuoteOrganic;
+  return profile;
+}
+
+export function getActiveProfileName() {
+  return activeProfile;
+}
+
 export const config = {
   // ─── Behaviour Flags ─────────────────────
   enableAutoPromote: u.enableAutoPromote ?? false,

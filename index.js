@@ -12,7 +12,7 @@ import { getTopCandidates } from "./tools/screening.js";
 import { LPIntelligenceService } from "./dist/services/lpIntelligenceService.js";
 import { ConfigManagerService } from "./dist/services/configManagerService.js";
 import { formatGmgnCandidateForPrompt } from "./tools/gmgn.js";
-import { config, reloadScreeningThresholds, computeDeployAmount, lanesConfig, activeLaneSetting, updateActiveLaneSetting, screeningContext } from "./config.js";
+import { config, reloadScreeningThresholds, computeDeployAmount, lanesConfig, activeLaneSetting, updateActiveLaneSetting, screeningContext, autoSelectProfile, applyProfileToConfig, getActiveProfileName, SCREENING_PROFILES, setActiveProfile, activeProfile } from "./config.js";
 import { engines } from "./dist/engines/index.js";
 import { evolveThresholds, getPerformanceSummary } from "./lessons.js";
 import { executeTool, registerCronRestarter } from "./tools/executor.js";
@@ -155,6 +155,23 @@ function _persistLiveTradingPaused(paused) {
     uc.liveTradingPaused = paused;
     fs.writeFileSync(repoPath("user-config.json"), JSON.stringify(uc, null, 2));
   } catch {}
+}
+
+function _persistActiveProfile(profileName) {
+  try {
+    const uc = JSON.parse(fs.readFileSync(repoPath("user-config.json"), "utf-8"));
+    uc.activeProfile = profileName;
+    fs.writeFileSync(repoPath("user-config.json"), JSON.stringify(uc, null, 2));
+  } catch {}
+}
+
+function _getUserConfigProfile() {
+  try {
+    const uc = JSON.parse(fs.readFileSync(repoPath("user-config.json"), "utf-8"));
+    const p = uc.activeProfile;
+    if (p === "scalping" || p === "compounding" || p === "auto") return p;
+  } catch {}
+  return null;
 }
 
 function schedulePeakConfirmation(positionAddress) {
@@ -598,6 +615,21 @@ export async function runScreeningCycle({ silent = false } = {}) {
     const effectiveMinAlpha = dryRunAlphaOverride !== null ? dryRunAlphaOverride : (laneCfg.minLpAlphaScore ?? 70);
     log("cron", `Lane "${_resolvedLane}" active: minAlpha=${effectiveMinAlpha}, maxPos=${config.risk.maxPositions}, deployAmt=${config.management.deployAmountSol}`);
 
+    // ── Screening Profile Selection ──────────
+    // Auto-select profile based on lane/regime, or use user-set profile from user-config.json
+    const userSetProfile = _getUserConfigProfile();
+    if (userSetProfile && userSetProfile !== "auto") {
+      setActiveProfile(userSetProfile);
+      log("cron", `Screening profile: ${getActiveProfileName()} (user-set, auto-select bypassed)`);
+    } else {
+      const autoProfile = autoSelectProfile(_resolvedLane, _latestRegime);
+      setActiveProfile(autoProfile);
+      log("cron", `Screening profile: ${getActiveProfileName()} (auto-selected via lane=${_resolvedLane}, regime=${_latestRegime})`);
+    }
+    // Apply profile thresholds to config.screening (overrides only tuning fields, safety fields keep global)
+    applyProfileToConfig(getActiveProfileName());
+    log("cron", `[PROFILE] ${getActiveProfileName()} thresholds: minMcap=${config.screening.minMcap}, minHolders=${config.screening.minHolders}, minVolume=${config.screening.minVolume}, minTvl=${config.screening.minTvl}, minFeeActiveTvlRatio=${config.screening.minFeeActiveTvlRatio}, timeframe=${config.screening.timeframe}`);
+
     // Fetch top candidates, then recon each sequentially with a small delay to avoid 429s
     const topCandidates = await getTopCandidates({ limit: 10 }).catch((e) => ({ _error: e.message }));
     if (topCandidates?._error) {
@@ -893,6 +925,8 @@ export async function runScreeningCycle({ silent = false } = {}) {
     let _lastDeployPool = null;
     const laneLabel = _resolvedLane.charAt(0).toUpperCase() + _resolvedLane.slice(1);
     const laneLine = `Active lane: ${laneLabel} (minLpAlphaScore=${effectiveMinAlpha}, maxPositions=${config.risk.maxPositions})`;
+    const profileLabel = SCREENING_PROFILES[getActiveProfileName()]?.label || getActiveProfileName();
+    const profileLine = `Profile: ${profileLabel} (timeframe=${config.screening.timeframe}, minTvl=$${config.screening.minTvl}, minVolume=$${config.screening.minVolume})`;
 
     if (!config.enableAutoPromote && isDryRun && passing.length > 0) {
       log("deploy", `[DRY_RUN] Auto-promote disabled — AI decides deploys`);
@@ -976,9 +1010,10 @@ export async function runScreeningCycle({ silent = false } = {}) {
 
     const { content } = await agentLoop(`
 SCREENING CYCLE
-${strategyBlock}
-${laneLine}
-Positions: ${prePositions.total_positions}/${config.risk.maxPositions} | SOL: ${currentBalance.sol.toFixed(3)} | Deploy: ${deployAmount} SOL
+    ${strategyBlock}
+    ${laneLine}
+    ${profileLine}
+    Positions: ${prePositions.total_positions}/${config.risk.maxPositions} | SOL: ${currentBalance.sol.toFixed(3)} | Deploy: ${deployAmount} SOL
 
 PRE-LOADED CANDIDATES (${passing.length} pools):
 ${candidateBlocks.join("\n\n")}
@@ -1405,7 +1440,7 @@ const READ_ONLY_COMMANDS = [
   "/mode", "/filters", "/agent", "/wallet", "/status",
   "/positions", "/help", "/config", "/candidates",
   "/hive", "/channel", "/pool", "/briefing", "/screen",
-  "/setmodel", "/setrpc", "/lane", "/learnings", "/calibration"
+  "/setmodel", "/setrpc", "/lane", "/profile", "/learnings", "/calibration"
 ];
 
 const _telegramQueue = []; // queued messages received while agent was busy
@@ -1462,6 +1497,7 @@ function formatConfigSnapshot() {
     "Config snapshot",
     "",
     `Screening source: ${config.screening.source}`,
+    `Profile: ${SCREENING_PROFILES[getActiveProfileName()]?.label || getActiveProfileName()} (${config.screening.timeframe}, minTvl=$${config.screening.minTvl})`,
     `Strategy: ${config.strategy.strategy} | bins: [${config.strategy.minBinsBelow}–${config.strategy.maxBinsBelow}] (volatility-scaled)`,
     `Deploy: ${config.management.deployAmountSol} SOL | gasReserve: ${config.management.gasReserve} | maxPositions: ${config.risk.maxPositions}`,
     `Stop loss: ${config.management.stopLossPct}% | take profit: ${config.management.takeProfitPct}%`,
@@ -1867,6 +1903,7 @@ function formatHelpText() {
     "/setmodel <model> — change LLM model",
     "/setrpc <url> — change RPC URL",
     "/restart — soft restart agent",
+    "/profile <scalping|compounding|auto> — screening profile",
     "/channel <mode> — set notification level (all|deploys|errors|off)",
   ].join("\n");
 }
@@ -2180,6 +2217,41 @@ async function telegramHandler(msg) {
       log("lane", `Lane changed to ${choice} (resolved: ${_resolvedLane})`);
     } catch (e) {
       await sendMessage(`Error: ${e.message}`).catch(() => {});
+    }
+    return;
+  }
+
+  // ── Profile command ──────────────────────
+  const profileMatch = text.match(/^\/profile\s*(scalping|compounding|auto)?$/i);
+  if (profileMatch) {
+    const choice = profileMatch[1] ? profileMatch[1].toLowerCase() : null;
+    if (!choice) {
+      const profileLabel = SCREENING_PROFILES[getActiveProfileName()]?.label || getActiveProfileName();
+      await sendMessage([
+        `📊 Active profile: ${profileLabel}`,
+        `Thresholds: minMcap=$${config.screening.minMcap}, minHolders=${config.screening.minHolders}, minVolume=$${config.screening.minVolume}, minTvl=$${config.screening.minTvl}, timeframe=${config.screening.timeframe}`,
+        "",
+        "Available profiles:",
+        `  /profile scalping — ${SCREENING_PROFILES.scalping.description}`,
+        `  /profile compounding — ${SCREENING_PROFILES.compounding.description}`,
+        `  /profile auto — auto-select based on market (lane/regime)`,
+      ].join("\n")).catch(() => {});
+      return;
+    }
+    if (choice === "auto") {
+      _persistActiveProfile("auto");
+      const autoProf = autoSelectProfile(_resolvedLane, _latestRegime);
+      setActiveProfile(autoProf);
+      applyProfileToConfig(autoProf);
+      await sendMessage(`✅ Profile set to auto — currently resolved to "${autoProf}"`).catch(() => {});
+      log("profile", `Profile set to auto (resolved: ${autoProf})`);
+    } else {
+      setActiveProfile(choice);
+      _persistActiveProfile(choice);
+      applyProfileToConfig(choice);
+      const label = SCREENING_PROFILES[choice]?.label || choice;
+      await sendMessage(`✅ Profile set to "${label}"`).catch(() => {});
+      log("profile", `Profile manually set to ${choice}`);
     }
     return;
   }
@@ -2728,6 +2800,7 @@ async function telegramHandler(msg) {
         "🤖 Agent Status",
         `- Mode: ${isDryRun ? "DRY RUN ✅" : "LIVE 🔴"}`,
         `- Lane: ${laneLabel}${activeLaneSetting === "auto" ? " (auto)" : ""}`,
+        `- Profile: ${SCREENING_PROFILES[getActiveProfileName()]?.label || getActiveProfileName()} (${config.screening.timeframe}, minTvl=$${config.screening.minTvl})`,
         `- Model: ${model}`,
         `- Screening: every ${config.schedule.screeningIntervalMin}m`,
         `- Management: every ${config.schedule.managementIntervalMin}m`,
