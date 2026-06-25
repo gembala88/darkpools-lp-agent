@@ -141,14 +141,23 @@ export const SCREENING_PROFILES = {
   },
 };
 
-export let activeProfile = "scalping";
+export let activeProfile = null;
 
 export function setActiveProfile(profileName) {
-  if (SCREENING_PROFILES[profileName]) {
+  if (profileName === null || SCREENING_PROFILES[profileName]) {
     activeProfile = profileName;
     return true;
   }
   return false;
+}
+
+export function isProfileActive() {
+  return activeProfile !== null && SCREENING_PROFILES[activeProfile] != null;
+}
+
+export function getProfileDisplayLabel() {
+  if (!isProfileActive()) return "Manual";
+  return SCREENING_PROFILES[activeProfile]?.label || activeProfile;
 }
 
 /**
@@ -199,6 +208,7 @@ export const config = {
     maxPositions:    u.maxPositions    ?? 5,
     maxDeployAmount: u.maxDeployAmount ?? 50,
     dryRunMinAlphaScore: u.dryRunMinAlphaScore ?? 15,
+    minAlphaScore:        u.minAlphaScore        ?? 5,  // used in both dry-run and live
   },
 
   // ─── Pool Screening Thresholds ───────────
@@ -523,6 +533,7 @@ export function reloadScreeningThresholds() {
     if (fresh.minSolToOpen != null) config.management.minSolToOpen = fresh.minSolToOpen;
     if (fresh.maxDeployAmount != null) config.risk.maxDeployAmount = fresh.maxDeployAmount;
     if (fresh.dryRunMinAlphaScore != null) config.risk.dryRunMinAlphaScore = fresh.dryRunMinAlphaScore;
+    if (fresh.minAlphaScore        != null) config.risk.minAlphaScore        = fresh.minAlphaScore;
     if (fresh.maxSteps != null) config.llm.maxSteps = fresh.maxSteps;
     if (fresh.enableConfigManager !== undefined) config.enableConfigManager = fresh.enableConfigManager;
     const minBinsBelow = numericConfig(fresh.minBinsBelow) ?? config.strategy.minBinsBelow;

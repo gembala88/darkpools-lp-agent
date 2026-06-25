@@ -20,7 +20,7 @@ import { addToBlacklist, removeFromBlacklist, listBlacklist } from "../token-bla
 import { blockDev, unblockDev, listBlockedDevs } from "../dev-blocklist.js";
 import { addSmartWallet, removeSmartWallet, listSmartWallets, checkSmartWalletsOnPool } from "../smart-wallets.js";
 import { getTokenInfo, getTokenHolders, getTokenNarrative } from "./token.js";
-import { config, reloadScreeningThresholds, MIN_SAFE_BINS_BELOW, screeningContext, setActiveProfile, applyProfileToConfig, getActiveProfileName, SCREENING_PROFILES } from "../config.js";
+import { config, reloadScreeningThresholds, MIN_SAFE_BINS_BELOW, screeningContext, setActiveProfile, applyProfileToConfig, getActiveProfileName, getProfileDisplayLabel, SCREENING_PROFILES } from "../config.js";
 import { getRecentDecisions } from "../decision-log.js";
 import fs from "fs";
 import { execSync, spawn } from "child_process";
@@ -237,7 +237,7 @@ const toolMap = {
     setActiveProfile(profile);
     applyProfileToConfig(profile);
     log("screening", `Profile overridden to "${profile}" by LLM — ${reason || "no reason given"}`);
-    return { success: true, profile: getActiveProfileName(), activeThresholds: { timeframe: config.screening.timeframe, minTvl: config.screening.minTvl, minVolume: config.screening.minVolume, minHolders: config.screening.minHolders, minMcap: config.screening.minMcap } };
+    return { success: true, profile: getProfileDisplayLabel(), activeThresholds: { timeframe: config.screening.timeframe, minTvl: config.screening.minTvl, minVolume: config.screening.minVolume, minHolders: config.screening.minHolders, minMcap: config.screening.minMcap } };
   },
   get_pool_detail: getPoolDetail,
   get_position_pnl: getPositionPnl,
@@ -358,6 +358,9 @@ const toolMap = {
       maxBotHoldersPct: ["screening", "maxBotHoldersPct"],
       maxTop10Pct: ["screening", "maxTop10Pct"],
       maxVolatility: ["screening", "maxVolatility"],
+      minAlphaScore: ["risk", "minAlphaScore"],
+      maxHoldHours: ["management", "maxHoldHours"],
+      quickTakeProfitPct: ["management", "quickTakeProfitPct"],
       allowedLaunchpads: ["screening", "allowedLaunchpads"],
       blockedLaunchpads: ["screening", "blockedLaunchpads"],
       minTokenAgeHours: ["screening", "minTokenAgeHours"],
