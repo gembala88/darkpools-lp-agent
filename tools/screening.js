@@ -1019,12 +1019,15 @@ async function enrichCandidates(pools, s) {
 
     if (jupiterResult.status === 'fulfilled' && jupiterResult.value) {
       const j = jupiterResult.value;
-      overlay.jupiterHolders = j.holders;
-      overlay.jupiterMarketCap = j.marketCap;
-      overlay.jupiterLiquidity = j.liquidity;
-      overlay.jupiterVolume24h = j.volume24h;
-      overlay.botHoldersPct = j.audit?.botHoldersPct;
-      overlay.topHoldersPct = j.audit?.topHoldersPct;
+      const jt = j.results?.[0] || null;
+      if (jt) {
+        overlay.jupiterHolders = jt.holders;
+        overlay.jupiterMarketCap = jt.mcap;
+        overlay.jupiterLiquidity = jt.liquidity;
+        overlay.jupiterVolume24h = jt.volume24h;
+        overlay.botHoldersPct = jt.audit?.bot_holders_pct != null ? jt.audit.bot_holders_pct : overlay.botHoldersPct;
+        overlay.topHoldersPct = jt.audit?.top_holders_pct != null ? jt.audit.top_holders_pct : overlay.topHoldersPct;
+      }
     }
 
     if (dexResult.status === 'fulfilled') {
@@ -1048,8 +1051,9 @@ async function enrichCandidates(pools, s) {
       }
     }
 
-    // Jupiter DatAPI holder count fallback when Birdeye and Jupiter both return 0
-    if ((!overlay.birdeyeHolders || overlay.birdeyeHolders === 0) && (!overlay.jupiterHolders || overlay.jupiterHolders === 0)) {
+    // Jupiter DatAPI holder count fallback when best available data is missing or suspiciously low
+    const bestKnownHolders = overlay.birdeyeHolders || overlay.jupiterHolders || 0;
+    if (!bestKnownHolders || bestKnownHolders < 100) {
       try {
         const res = await fetch(`${DATAPI_JUP}/holders/${mint}?limit=1`);
         if (res.ok) {
