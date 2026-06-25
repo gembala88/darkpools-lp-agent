@@ -1348,9 +1348,10 @@ export async function getTopCandidates({ limit = 10 } = {}) {
     const filtered = [];
     for (const pool of eligible) {
       const enr = pool._enrichment || {};
-      const bestMcap = enr.birdeyeMarketCap || enr.jupiterMarketCap || pool.mcap || pool.marketCap;
-      const bestHolders = enr.birdeyeHolders || enr.jupiterHolders || pool.holders;
-      const bestVolume = enr.birdeyeVolume24h || enr.jupiterVolume24h || enr.dexVolume24h || pool.volume_window;
+      // Prefer Jupiter data over Birdeye (Jupiter DatAPI works without API key, more reliable for Solana tokens)
+      const bestMcap = enr.jupiterMarketCap || enr.birdeyeMarketCap || pool.mcap || pool.marketCap;
+      const bestHolders = enr.jupiterHolders || enr.birdeyeHolders || pool.holders;
+      const bestVolume = enr.jupiterVolume24h || enr.birdeyeVolume24h || enr.dexVolume24h || pool.volume_window;
 
       if (bestMcap != null && bestMcap < s.minMcap) {
         pushFilteredReason(filteredOut, pool, `mcap ${bestMcap} below minMcap ${s.minMcap}`);
