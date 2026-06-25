@@ -1040,10 +1040,11 @@ async function enrichCandidates(pools, s) {
 
     // Verify token: fetch verified status and JupShield presence from Jupiter DatAPI
     if (verifyResult.status === 'fulfilled' && verifyResult.value) {
-      const v = Array.isArray(verifyResult.value) ? verifyResult.value[0] : verifyResult.value;
+      const assets = Array.isArray(verifyResult.value) ? verifyResult.value : [verifyResult.value];
+      const v = assets.find((item) => item?.id === mint) || null;
       if (v) {
-        overlay.jupVerified = v.verified === true;
-        overlay.jupShielded = Array.isArray(v.tags) && (v.tags.includes('shield') || v.tags.includes('jup_shield') || v.tags.includes('verified'));
+        overlay.jupVerified = v.isVerified === true || (Array.isArray(v.tags) && v.tags.includes('verified'));
+        overlay.jupShielded = Array.isArray(v.tags) && (v.tags.includes('shield') || v.tags.includes('jup_shield'));
       }
     }
 
@@ -1318,15 +1319,15 @@ export async function getTopCandidates({ limit = 10 } = {}) {
       }
       const isVerified = enr.jupVerified === true;
       const hasShield = enr.jupShielded === true;
-      if (!isVerified && enr.jupVerified === false) {
-        pushFilteredReason(filteredOut, pool, "token not verified on Jupiter — cannot LP");
-        log("screening", `Verified+shield filter: ${pool.name} — token NOT verified`);
+      // Token must be either verified OR shielded to pass
+      if (enr.jupVerified === false && enr.jupShielded === false) {
+        pushFilteredReason(filteredOut, pool, "token not verified/JupShield on Jupiter");
+        log("screening", `Verified+shield filter: ${pool.name} — NOT verified and no JupShield`);
         return false;
       }
-      if (!hasShield && enr.jupShielded === false) {
-        pushFilteredReason(filteredOut, pool, "token missing JupShield — insufficient protection");
-        log("screening", `Verified+shield filter: ${pool.name} — missing JupShield`);
-        return false;
+      if (!isVerified && enr.jupVerified === false) {
+        // Not verified, but has shield — allow (shield implies monitored)
+        return true;
       }
       return true;
     });
