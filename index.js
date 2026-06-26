@@ -611,18 +611,21 @@ export async function runScreeningCycle({ silent = false } = {}) {
       notify(`🛣️ Lane switched: ${previousLane} → ${_resolvedLane}`, "info").catch(() => {});
     }
 
-    // Apply lane overrides to effective config for this cycle (skip fields user locked)
+    // Apply lane overrides to effective config for this cycle (skip fields user set in config or locked)
     let lockedFields = [];
+    let userConfigKeys = [];
     try {
       const ucPath = repoPath('user-config.json');
       if (fs.existsSync(ucPath)) {
         const uc = JSON.parse(fs.readFileSync(ucPath, 'utf8'));
         lockedFields = Array.isArray(uc.configManagerLockedFields) ? uc.configManagerLockedFields : [];
+        userConfigKeys = Object.keys(uc);
       }
     } catch {}
     const laneScreeningOverrides = laneCfg.screeningOverrides || {};
     for (const [key, val] of Object.entries(laneScreeningOverrides)) {
-      if (config.screening[key] !== undefined && val != null && !lockedFields.includes(key)) {
+      // Skip if user explicitly set this key in user-config.json OR it's in locked fields
+      if (config.screening[key] !== undefined && val != null && !lockedFields.includes(key) && !userConfigKeys.includes(key)) {
         config.screening[key] = val;
       }
     }
