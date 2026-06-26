@@ -644,7 +644,7 @@ async function discoverFromMeteora() {
           fee_active_tvl_ratio: Number(p.fee_active_tvl_ratio) || null,
           volatility: Number(p.volatility) || null,
           volatility_timeframe: "30m",
-          holders: Number(p.base_token_holders || 0),
+          holders: Number(base?.holders ?? p.base_token_holders ?? 0),
           mcap: Math.round(Number(base?.market_cap || 0)),
           token_age_hours: base?.created_at ? Math.floor((Date.now() - base.created_at) / 3_600_000) : null,
           dev: base?.dev || null,
