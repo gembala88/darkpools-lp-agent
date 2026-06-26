@@ -752,6 +752,16 @@ export async function deployPosition({
     throw new Error("Invalid deploy amount: provide a positive amount_y/amount_sol.");
   }
   const isSingleSidedSol = finalAmountX <= 0 && finalAmountY > 0;
+  if (isSingleSidedSol) {
+    const yMint = pool.lbPair.tokenYMint.toString();
+    const xMint = pool.lbPair.tokenXMint.toString();
+    const SOL_MINT = "So11111111111111111111111111111111111111112";
+    if (yMint !== SOL_MINT && xMint !== SOL_MINT) {
+      throw new Error(
+        `Cannot deploy one-sided SOL to non-SOL pair (X: ${xMint}, Y: ${yMint}). Only SOL pairs are supported.`
+      );
+    }
+  }
   if (isSingleSidedSol && (Number(bins_above ?? 0) > 0 || Number(upside_pct ?? 0) > 0)) {
     throw new Error(
       "Single-side SOL deploy cannot use bins_above or upside_pct. Use amount_y with bins_below only; the upper bin is the SDK active bin.",
