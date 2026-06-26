@@ -688,7 +688,7 @@ export async function deployPosition({
   entry_holders,
 }) {
   pool_address = normalizeMint(pool_address);
-  const activeStrategy = strategy || config.strategy.strategy;
+  let activeStrategy = strategy || config.strategy.strategy;
   let activeBinsBelow = bins_below ?? config.strategy.defaultBinsBelow ?? config.strategy.minBinsBelow;
   let activeBinsAbove = bins_above ?? 0;
   const parsedVolatility = volatility == null ? null : Number(volatility);
@@ -864,6 +864,13 @@ export async function deployPosition({
   if (isSingleSidedSol && solIsX && totalYLamports.gtn(0)) {
     totalXLamports = totalYLamports;
     totalYLamports = new BN(0);
+  }
+
+  // Force spot strategy for one-sided X deposits — bid_ask locks funds in limit orders
+  // that the Meteora PnL API reports as 0 balance, making the position appear worthless.
+  if (isSingleSidedSol && solIsX && activeStrategy !== "spot") {
+    log("deploy", `Forcing spot strategy for X-side SOL deposit (was ${activeStrategy})`);
+    activeStrategy = "spot";
   }
 
   // Pre-flight balance check in LIVE mode
