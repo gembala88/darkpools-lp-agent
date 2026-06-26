@@ -1059,10 +1059,11 @@ async function enrichCandidates(pools, s) {
         if (res.ok) {
           const data = await res.json();
           const items = Array.isArray(data) ? data : (data?.holders ?? []);
-          const total = data?.total ?? items.length;
-          if (Number(total) > 0) {
-            overlay.jupiterHolders = Number(total);
+          const realTotal = data?.count ?? items.length;
+          if (Number(realTotal) > 0) {
+            overlay.jupiterHolders = Number(realTotal);
           }
+          console.log(`[enrich-holders] ${mint} realTotal=${data?.count ?? '?'} sampled=${items.length} using=${overlay.jupiterHolders || '?'}`);
         }
       } catch {}
     }
@@ -1077,7 +1078,8 @@ async function enrichCandidates(pools, s) {
         if (holderRes.ok) {
           const holderData = await holderRes.json();
           const holders = Array.isArray(holderData) ? holderData : (holderData?.holders ?? []);
-          console.log(`[enrich-debug] ${mint} holders count: ${holders?.length ?? 0}`);
+          const holderRealTotal = holderData?.count ?? holders.length;
+          console.log(`[enrich-debug] ${mint} holders count: ${holders?.length ?? 0} realTotal: ${holderRealTotal}`);
           if (holders.length > 0) {
             // Debug: log first holder to see actual field names
             console.log('[holder-sample]', JSON.stringify(holders[0]));
