@@ -1019,7 +1019,7 @@ export async function deployPosition({
   }
 
   const wallet = getWallet();
-  const newPosition = Keypair.generate();
+  let newPosition = Keypair.generate();
 
   // ─── Wrap native SOL → wSOL for one-sided deposits ────────────
   // The SDK's AddLiquidityByStrategy2 transfers wSOL (Tokenkeg), not native SOL.
