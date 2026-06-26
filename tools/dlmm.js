@@ -847,14 +847,23 @@ export async function deployPosition({
   const baseFactor = pool.lbPair.parameters?.baseFactor ?? 0;
   const actualBaseFee = base_fee ?? (baseFactor > 0 ? parseFloat((baseFactor * actualBinStep / 1e6 * 100).toFixed(4)) : null);
 
-  const totalYLamports = new BN(Math.floor(finalAmountY * 1e9));
-  // For X, we assume it's also 9 decimals for now, or we'd need to fetch mint decimals.
-  // Most Meteora pools base tokens are 6 or 9. To be safe, we should fetch.
+  let totalYLamports = new BN(Math.floor(finalAmountY * 1e9));
   let totalXLamports = new BN(0);
   if (finalAmountX > 0) {
     const mintInfo = await getConnection().getParsedAccountInfo(new PublicKey(pool.lbPair.tokenXMint));
     const decimals = mintInfo.value?.data?.parsed?.info?.decimals ?? 9;
     totalXLamports = new BN(Math.floor(finalAmountX * Math.pow(10, decimals)));
+  }
+
+  // Determine which side has wSOL for one-sided deposits
+  const yMint = pool.lbPair.tokenYMint.toString();
+  const xMint = pool.lbPair.tokenXMint.toString();
+  const SOL_MINT = "So11111111111111111111111111111111111111112";
+  const solIsX = xMint === SOL_MINT;
+  const solIsY = yMint === SOL_MINT;
+  if (isSingleSidedSol && solIsX && totalYLamports.gtn(0)) {
+    totalXLamports = totalYLamports;
+    totalYLamports = new BN(0);
   }
 
   // Pre-flight balance check in LIVE mode
@@ -1015,19 +1024,17 @@ export async function deployPosition({
   // ─── Wrap native SOL → wSOL for one-sided deposits ────────────
   // The SDK's AddLiquidityByStrategy2 transfers wSOL (Tokenkeg), not native SOL.
   // If we skip wrapping, the wallet has 0 wSOL → Token program error 0x1 (InsufficientFunds).
-  if (process.env.DRY_RUN !== "true" && isSingleSidedSol && totalYLamports.gtn(0)) {
-    const yMint = pool.lbPair.tokenYMint.toString();
-    const xMint = pool.lbPair.tokenXMint.toString();
-    const SOL_MINT = "So11111111111111111111111111111111111111112";
-    const solMintAddr = yMint === SOL_MINT ? yMint : xMint === SOL_MINT ? xMint : null;
-    if (solMintAddr) {
+  // Wraps whichever side (X or Y) has the SOL lamports after potential side flip.
+  if (process.env.DRY_RUN !== "true" && isSingleSidedSol) {
+    const wrapAmount = totalXLamports.gtn(0) ? totalXLamports : totalYLamports;
+    if (wrapAmount.gtn(0)) {
       const wrapStart = Date.now();
-      log("deploy", `Wrapping ${finalAmountY} SOL → wSOL before SDK call...`);
+      log("deploy", `Wrapping ${(wrapAmount.toNumber() / 1e9)} SOL → wSOL before SDK call...`);
       try {
         const { getOrCreateATAInstruction } = await import("@meteora-ag/dlmm");
         const { ix: createAtaIx, ataPubKey: ataAddress } = await getOrCreateATAInstruction(
           getConnection(),
-          new PublicKey(solMintAddr),
+          new PublicKey(SOL_MINT),
           wallet.publicKey,
           null,
           wallet.publicKey,
@@ -1038,7 +1045,7 @@ export async function deployPosition({
           SystemProgram.transfer({
             fromPubkey: wallet.publicKey,
             toPubkey: ataAddress,
-            lamports: totalYLamports.toNumber(),
+            lamports: wrapAmount.toNumber(),
           })
         );
         wrapTx.add(
