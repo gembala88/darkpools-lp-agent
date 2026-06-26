@@ -1015,7 +1015,7 @@ export async function deployPosition({
       log("deploy", `Wrapping ${finalAmountY} SOL → wSOL before SDK call...`);
       try {
         const { getOrCreateATAInstruction } = await import("@meteora-ag/dlmm");
-        const { instruction: createAtaIx, address: ataAddress } = await getOrCreateATAInstruction(
+        const { ix: createAtaIx, ataPubKey: ataAddress } = await getOrCreateATAInstruction(
           getConnection(),
           new PublicKey(solMintAddr),
           wallet.publicKey,
