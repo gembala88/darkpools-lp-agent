@@ -506,6 +506,7 @@ After executing, write a brief one-line result per position.
     notify(`❌ Error: Management cycle failed — ${error.message}`, "errors").catch(() => {});
   } finally {
     _managementBusy = false;
+    drainTelegramQueue().catch(() => {});
     if (!silent && telegramEnabled()) {
       if (mgmtReport) {
         const reportText = `🔄 Management Cycle\n\n${stripThink(mgmtReport)}`;
@@ -550,6 +551,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
         reason: `Max positions reached (${effectiveOpenPositions}/${config.risk.maxPositions})`,
       });
       _screeningBusy = false;
+      drainTelegramQueue().catch(() => {});
       return screenReport;
     }
     const minRequired = config.management.deployAmountSol + config.management.gasReserve;
@@ -563,12 +565,14 @@ export async function runScreeningCycle({ silent = false } = {}) {
         reason: `Insufficient SOL (${preBalance.sol.toFixed(3)} < ${minRequired})`,
       });
       _screeningBusy = false;
+      drainTelegramQueue().catch(() => {});
       return screenReport;
     }
   } catch (e) {
     log("cron_error", `Screening pre-check failed: ${e.message}`);
     screenReport = `Screening pre-check failed: ${e.message}`;
     _screeningBusy = false;
+    drainTelegramQueue().catch(() => {});
     return screenReport;
   }
   if (!silent && telegramEnabled()) {
@@ -1153,6 +1157,7 @@ IMPORTANT:
     notify(`❌ Error: Screening cycle failed — ${error.message}`, "errors").catch(() => {});
   } finally {
     _screeningBusy = false;
+    drainTelegramQueue().catch(() => {});
     if (!silent && telegramEnabled()) {
       if (screenReport) {
         const reportText = `🔍 Screening Cycle\n\n${stripThink(screenReport)}`;
@@ -1190,6 +1195,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
       log("cron_error", `Health check failed: ${error.message}`);
     } finally {
       _managementBusy = false;
+      drainTelegramQueue().catch(() => {});
     }
   });
 
