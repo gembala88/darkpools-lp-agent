@@ -611,14 +611,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
       notify(`🛣️ Lane switched: ${previousLane} → ${_resolvedLane}`, "info").catch(() => {});
     }
 
-    // Apply lane overrides to effective config for this cycle
-    const laneScreeningOverrides = laneCfg.screeningOverrides || {};
-    for (const [key, val] of Object.entries(laneScreeningOverrides)) {
-      if (config.screening[key] !== undefined && val != null) {
-        config.screening[key] = val;
-      }
-    }
-    // Lane overrides — skip fields locked via configManagerLockedFields in user-config.json
+    // Apply lane overrides to effective config for this cycle (skip fields user locked)
     let lockedFields = [];
     try {
       const ucPath = repoPath('user-config.json');
@@ -627,6 +620,12 @@ export async function runScreeningCycle({ silent = false } = {}) {
         lockedFields = Array.isArray(uc.configManagerLockedFields) ? uc.configManagerLockedFields : [];
       }
     } catch {}
+    const laneScreeningOverrides = laneCfg.screeningOverrides || {};
+    for (const [key, val] of Object.entries(laneScreeningOverrides)) {
+      if (config.screening[key] !== undefined && val != null && !lockedFields.includes(key)) {
+        config.screening[key] = val;
+      }
+    }
     if (laneCfg.maxPositions != null && !lockedFields.includes('maxPositions')) config.risk.maxPositions = laneCfg.maxPositions;
     log("cron", `[SCREENING] Using lane '${_resolvedLane}' thresholds: maxTop10Pct=${config.screening.maxTop10Pct}, maxBotHoldersPct=${config.screening.maxBotHoldersPct}, minTvl=${config.screening.minTvl}, minTokenFeesSol=${config.screening.minTokenFeesSol}, minHolders=${config.screening.minHolders}`);
     // Alpha score: prefer user-set minAlphaScore (works in both modes), fall back to lane threshold
