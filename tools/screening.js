@@ -1176,6 +1176,29 @@ async function enrichCandidates(pools, s) {
       }
     }
 
+    // Fetch fee_tvl from DLMM datapi as fallback when pool discovery API returned null
+    const feePoolAddr = mintToPool.get(mint);
+    if (feePoolAddr && overlay.feeActiveTvlRatio == null) {
+      try {
+        const dlmmRes = await fetch(`${METEORA_DLMM_API}/pools/${feePoolAddr}`);
+        if (dlmmRes.ok) {
+          const dlmmPool = await dlmmRes.json();
+          const rawFeeTvl = dlmmPool?.fee_tvl_ratio ?? dlmmPool?.fee_active_tvl_ratio;
+          if (rawFeeTvl != null) {
+            const resolved = typeof rawFeeTvl === "number" ? rawFeeTvl
+              : typeof rawFeeTvl === "string" ? Number(rawFeeTvl)
+              : typeof rawFeeTvl === "object" && !Array.isArray(rawFeeTvl)
+                ? (rawFeeTvl[s.timeframe || "1h"] ?? rawFeeTvl["1h"] ?? rawFeeTvl["30m"] ?? null)
+              : null;
+            if (resolved != null && Number.isFinite(resolved)) {
+              overlay.feeActiveTvlRatio = Number(resolved);
+              log("enrichment", `[fee-tvl] mint=${mint} pool=${feePoolAddr.slice(0,8)} dlmm_raw=${JSON.stringify(rawFeeTvl)} resolved=${overlay.feeActiveTvlRatio}`);
+            }
+          }
+        }
+      } catch {}
+    }
+
     // Jupiter DatAPI holder count fallback when best available data is missing or suspiciously low
     const bestKnownHolders = overlay.birdeyeHolders || overlay.jupiterHolders || 0;
     if (!bestKnownHolders || bestKnownHolders < 100) {
@@ -1382,9 +1405,9 @@ export async function getTopCandidates({ limit = 10 } = {}) {
       }
       // DexScreener sources don't provide fee/active-TVL or volatility — skip those checks
       if (!p.dex_source) {
-        const feeActiveTvlRatio = Number(p.fee_active_tvl_ratio);
-        if (Number.isFinite(minFeeActiveTvlRatio) && minFeeActiveTvlRatio > 0 && (!Number.isFinite(feeActiveTvlRatio) || feeActiveTvlRatio < minFeeActiveTvlRatio)) {
-          pushFilteredReason(filteredOut, p, `fee/active-TVL ${Number.isFinite(feeActiveTvlRatio) ? feeActiveTvlRatio : "unknown"} below minFeeActiveTvlRatio ${minFeeActiveTvlRatio}`);
+        const feeActiveTvlRatio = p.fee_active_tvl_ratio;
+        if (feeActiveTvlRatio != null && Number.isFinite(minFeeActiveTvlRatio) && minFeeActiveTvlRatio > 0 && feeActiveTvlRatio < minFeeActiveTvlRatio) {
+          pushFilteredReason(filteredOut, p, `fee/active-TVL ${feeActiveTvlRatio}% below minFeeActiveTvlRatio ${minFeeActiveTvlRatio}%`);
           return false;
         }
         if (!isUsableVolatility(p.volatility)) {
@@ -1531,6 +1554,10 @@ export async function getTopCandidates({ limit = 10 } = {}) {
       }
       if (bestHolders != null) {
         pool.holders = bestHolders;
+      }
+      // Back-fill fee_active_tvl_ratio from DLMM enrichment (pool discovery API often returns null)
+      if (enr.feeActiveTvlRatio != null && (pool.fee_active_tvl_ratio == null || pool.fee_active_tvl_ratio === 0)) {
+        pool.fee_active_tvl_ratio = enr.feeActiveTvlRatio;
       }
       filtered.push(pool);
     }
