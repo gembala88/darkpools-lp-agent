@@ -97,7 +97,30 @@ function poolDetailBinStep(pool) {
 }
 
 function poolDetailFeeActiveTvlRatio(pool) {
-  return numberOrNull(pool?.fee_active_tvl_ratio);
+  const raw = pool?.fee_active_tvl_ratio ?? pool?.fee_tvl_ratio;
+  if (raw == null) return null;
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
+  if (typeof raw === "string") {
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+  // Object keyed by timeframe
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const tf = config.screening.timeframe || "1h";
+    const val = raw[tf];
+    if (val != null) {
+      const n = Number(val);
+      if (Number.isFinite(n)) return n;
+    }
+    for (const key of ["1h", "30m", "2h", "4h", "12h", "24h"]) {
+      const v = raw[key];
+      if (v != null) {
+        const n = Number(v);
+        if (Number.isFinite(n)) return n;
+      }
+    }
+  }
+  return null;
 }
 
 function poolDetailVolatility(pool) {
@@ -161,6 +184,30 @@ async function validateDeployPoolThresholds(args) {
 
   const feeActiveTvlRatio = poolDetailFeeActiveTvlRatio(detail);
   const minFeeActiveTvlRatio = numberOrNull(config.screening.minFeeActiveTvlRatio);
+
+  // Quote asset check: verify pool uses an allowed quote asset
+  const SOL_MINT = "So11111111111111111111111111111111111111112";
+  const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+  const USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+  const KNOWN_QUOTE_MINTS = new Set([SOL_MINT, USDC_MINT, USDT_MINT]);
+  const allowedQuotes = config.screening.allowedQuoteAssets ?? ["SOL"];
+  const txAddr = detail?.token_x?.address || "";
+  const tyAddr = detail?.token_y?.address || "";
+  const isXQuote = KNOWN_QUOTE_MINTS.has(txAddr);
+  const isYQuote = KNOWN_QUOTE_MINTS.has(tyAddr);
+  if (!isXQuote && !isYQuote) {
+    // Neither token is a known quote — pass through (unusual pool, let other filters decide)
+    log("deploy", `[QUOTE_ASSET] ${args.pool_name || args.pool_address?.slice(0, 8)} — no known quote asset detected (tx=${detail?.token_x?.symbol} ty=${detail?.token_y?.symbol})`);
+  } else {
+    const quoteAddr = isXQuote ? txAddr : tyAddr;
+    const quoteSymbol = quoteAddr === SOL_MINT ? "SOL" : quoteAddr === USDC_MINT ? "USDC" : "USDT";
+    if (!allowedQuotes.includes(quoteSymbol)) {
+      return {
+        pass: false,
+        reason: `Pool quote asset ${quoteSymbol} is not in allowedQuoteAssets [${allowedQuotes.join(", ")}].`,
+      };
+    }
+  }
   if (isDryRun) {
     if (feeActiveTvlRatio != null) {
       log("deploy", `[DRY_RUN] fee/TVL gate BYPASSED for learning (pool ratio=${feeActiveTvlRatio}%)`);

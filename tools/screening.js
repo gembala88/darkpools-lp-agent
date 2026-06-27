@@ -26,6 +26,50 @@ const PVP_MIN_ACTIVE_TVL = 5_000;
 const PVP_MIN_HOLDERS = 500;
 const PVP_MIN_GLOBAL_FEES_SOL = 30;
 
+const SOL_MINT = "So11111111111111111111111111111111111111112";
+const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+const KNOWN_QUOTE_MINTS = new Set([SOL_MINT, USDC_MINT, USDT_MINT]);
+
+function isQuoteMint(address) {
+  return KNOWN_QUOTE_MINTS.has(address);
+}
+
+function getQuoteSymbol(address) {
+  if (address === SOL_MINT) return "SOL";
+  if (address === USDC_MINT) return "USDC";
+  if (address === USDT_MINT) return "USDT";
+  return null;
+}
+
+// Resolve fee_tvl_ratio from raw API pool, which may return an object keyed by timeframe
+function resolveFeeTvlRatio(rawPool, timeframe) {
+  const raw = rawPool?.fee_active_tvl_ratio ?? rawPool?.fee_tvl_ratio;
+  if (raw == null) return null;
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
+  if (typeof raw === "string") {
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+  // Object keyed by timeframe: pick the requested timeframe or fall back to first available
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const tf = raw[timeframe];
+    if (tf != null) {
+      const n = Number(tf);
+      if (Number.isFinite(n)) return n;
+    }
+    // Fallback: try "1h", then first numeric value
+    for (const key of ["1h", "30m", "2h", "4h", "12h", "24h"]) {
+      const val = raw[key];
+      if (val != null) {
+        const n = Number(val);
+        if (Number.isFinite(n)) return n;
+      }
+    }
+  }
+  return null;
+}
+
 // Volume history cache (60s TTL, keyed by pool address)
 const _volHistoryCache = new Map();
 const VOL_HISTORY_CACHE_TTL = 60_000;
@@ -153,7 +197,7 @@ function getRawPoolScreeningRejectReason(pool, s) {
   const quote = pool?.token_y || {};
   const binStep = numeric(pool?.dlmm_params?.bin_step);
   const tvl = numeric(pool?.tvl ?? pool?.active_tvl);
-  const feeActiveTvlRatio = numeric(pool?.fee_active_tvl_ratio);
+  const feeActiveTvlRatio = numeric(resolveFeeTvlRatio(pool, s.timeframe || "1h"));
   const volatility = numeric(pool?.volatility);
   const volume = numeric(pool?.volume);
   const holders = numeric(pool?.base_token_holders);
@@ -642,7 +686,6 @@ export async function discoverPools({
  */
 async function discoverFromMeteora() {
   try {
-    const SOL_MINT = "So11111111111111111111111111111111111111112";
     const s = config.screening;
     const filters = [
       "pool_type=dlmm",
@@ -658,11 +701,11 @@ async function discoverFromMeteora() {
     });
     const rawPools = Array.isArray(data.data) ? data.data : [];
 
-    // Filter to SOL pairs (token_x or token_y is SOL)
-    const solPools = rawPools.filter(p => {
+    // Filter to pools with a known quote asset (SOL, USDC, USDT)
+    const quotePools = rawPools.filter(p => {
       const tx = p.token_x?.address || "";
       const ty = p.token_y?.address || "";
-      return tx === SOL_MINT || ty === SOL_MINT;
+      return isQuoteMint(tx) || isQuoteMint(ty);
     });
 
     if (rawPools.length === 0) {
@@ -675,13 +718,17 @@ async function discoverFromMeteora() {
         sortBy: s.discoverySortBy,
       });
       const fbRaw = Array.isArray(fallback.data) ? fallback.data : [];
-      const fbSol = fbRaw.filter(p => (p.token_x?.address || "") === SOL_MINT || (p.token_y?.address || "") === SOL_MINT);
-      fbSol.forEach(p => rawPools.push(p));
-      fbSol.forEach(p => solPools.push(p));
+      const fbQuote = fbRaw.filter(p => {
+        const tx = p.token_x?.address || "";
+        const ty = p.token_y?.address || "";
+        return isQuoteMint(tx) || isQuoteMint(ty);
+      });
+      fbQuote.forEach(p => rawPools.push(p));
+      fbQuote.forEach(p => quotePools.push(p));
     }
 
     // Filter out dead pools, sort by volume descending, take top 100
-    const pools = solPools
+    const pools = quotePools
       .filter(p => {
         const tvl = Number(p.tvl || p.active_tvl || 0);
         const vol = Number(p.volume || 0);
@@ -690,14 +737,21 @@ async function discoverFromMeteora() {
       .sort((a, b) => (b.volume || 0) - (a.volume || 0))
       .slice(0, 100)
       .map(p => {
-        const isSolX = p.token_x?.address === SOL_MINT;
-        const base = isSolX ? p.token_y : p.token_x;
+        const tx = p.token_x?.address || "";
+        const ty = p.token_y?.address || "";
+        const isQuoteOnX = isQuoteMint(tx);
+        const isQuoteOnY = isQuoteMint(ty);
+        const quoteAddress = isQuoteOnX ? tx : (isQuoteOnY ? ty : tx);
+        const quoteSymbol = getQuoteSymbol(quoteAddress) || (isQuoteOnX ? p.token_x?.symbol : p.token_y?.symbol) || "?";
+        const base = isQuoteOnX ? p.token_y : p.token_x;
         const baseSymbol = base?.symbol || (base?.address || "").slice(0, 4);
+        const feeTvl = resolveFeeTvlRatio(p, s.timeframe || "1h");
+        log("screening", `[fee-tvl-debug] pool=${baseSymbol}-${quoteSymbol} raw_fee_tvl=${JSON.stringify(p.fee_active_tvl_ratio ?? p.fee_tvl_ratio)} used=${feeTvl} vs min=${s.minFeeActiveTvlRatio}`);
         return {
           pool: p.pool_address,
-          name: `${baseSymbol}-SOL`,
+          name: `${baseSymbol}-${quoteSymbol}`,
           base: { symbol: baseSymbol, mint: base?.address, organic: Math.round(base?.organic_score || 0), warnings: base?.warnings?.length || 0 },
-          quote: { symbol: "SOL", mint: SOL_MINT },
+          quote: { symbol: quoteSymbol, mint: quoteAddress },
           pool_type: "dlmm",
           bin_step: Number(p.dlmm_params?.bin_step) || null,
           fee_pct: Number(p.fee_pct) || null,
@@ -705,7 +759,7 @@ async function discoverFromMeteora() {
           active_tvl: Math.round(Number(p.active_tvl || p.tvl || 0)),
           fee_window: null,
           volume_window: Math.round(Number(p.volume || 0)),
-          fee_active_tvl_ratio: Number(p.fee_active_tvl_ratio) || null,
+          fee_active_tvl_ratio: feeTvl,
           volatility: Number(p.volatility) || null,
           volatility_timeframe: "30m",
           holders: Number(base?.holders ?? p.base_token_holders ?? 0),

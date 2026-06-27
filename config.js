@@ -216,7 +216,8 @@ export const config = {
     source:            u.screeningSource    ?? "meteora", // meteora | gmgn
     excludeHighSupplyConcentration: u.excludeHighSupplyConcentration ?? true,
     minFeeActiveTvlRatio: u.minFeeActiveTvlRatio ?? 0.05,
-    minTvl:            u.minTvl            ?? 5_000,
+    allowedQuoteAssets:   u.allowedQuoteAssets   ?? ["SOL"],
+    minTvl:               u.minTvl            ?? 5_000,
     maxTvl:            u.maxTvl !== undefined ? u.maxTvl : 500_000,
     maxVolatility:     u.maxVolatility     ?? 1.5,
     minVolume:         u.minVolume         ?? 500,
