@@ -954,6 +954,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
           pool.indicator_penalty ? `  indicator_penalty: -${pool.indicator_penalty} (${pool.indicator_soft_reject})` : null,
           `  metrics: bin_step=${pool.bin_step}, fee_pct=${pool.fee_pct}%, fee_tvl=${pool.fee_active_tvl_ratio}, vol=$${pool.volume_window}, tvl=$${pool.tvl ?? pool.active_tvl}, volatility_${pool.volatility_timeframe || "30m"}=${pool.volatility}, mcap=$${pool.mcap}, organic=${pool.organic_score}${pool.token_age_hours != null ? `, age=${pool.token_age_hours}h` : ""}`,
           `  audit: top10=${top10Pct}%, bots=${botPct}%, fees=${feesSol}SOL${launchpad ? `, launchpad=${launchpad}` : ""}`,
+          pool._enrichment?.volumeTrend ? `  volume_trend: ${pool._enrichment.volumeTrend} (ratio=${pool._enrichment.volumeAccelRatio}x, recent_avg=$${pool._enrichment.volumeRecentAvg}, prior_avg=$${pool._enrichment.volumePriorAvg})` : null,
           gmgnPriceLine,
           pvpLine,
           `  smart_wallets: ${sw?.in_pool?.length ?? 0} present${sw?.in_pool?.length ? ` → CONFIDENCE BOOST (${sw.in_pool.map(w => w.name).join(", ")})` : ""}`,

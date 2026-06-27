@@ -7,6 +7,7 @@ import { confirmIndicatorPreset } from "./chart-indicators.js";
 import { discoverGmgnPools } from "./gmgn.js";
 
 const DATAPI_JUP = "https://datapi.jup.ag/v1";
+const METEORA_DLMM_API = "https://dlmm.datapi.meteora.ag";
 
 const POOL_DISCOVERY_BASE = "https://pool-discovery-api.datapi.meteora.ag";
 const MIN_VOLATILITY_TIMEFRAME = "30m";
@@ -24,6 +25,66 @@ const PVP_RIVAL_LIMIT = 2;
 const PVP_MIN_ACTIVE_TVL = 5_000;
 const PVP_MIN_HOLDERS = 500;
 const PVP_MIN_GLOBAL_FEES_SOL = 30;
+
+// Volume history cache (60s TTL, keyed by pool address)
+const _volHistoryCache = new Map();
+const VOL_HISTORY_CACHE_TTL = 60_000;
+const VOLUME_ACCEL_RATIO = 1.5;
+const VOLUME_DECEL_RATIO = 0.5;
+
+async function fetchPoolVolumeHistory(poolAddress) {
+  const cached = _volHistoryCache.get(poolAddress);
+  if (cached && Date.now() - cached.ts < VOL_HISTORY_CACHE_TTL) return cached.data;
+  try {
+    const res = await fetch(`${METEORA_DLMM_API}/pools/${poolAddress}/volume/history`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    _volHistoryCache.set(poolAddress, { ts: Date.now(), data });
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function computeVolumeAcceleration(historyData) {
+  if (!historyData) return null;
+  const buckets = Array.isArray(historyData) ? historyData : historyData?.data ?? historyData?.buckets ?? null;
+  if (!Array.isArray(buckets) || buckets.length < 4) return null;
+
+  const entries = buckets.map((b) => ({
+    ts: Number(b.timestamp ?? b.startTime ?? b.time ?? b.t ?? 0),
+    vol: Number(b.volume ?? b.vol ?? b.value ?? b.liquidity ?? 0),
+  })).filter((e) => e.ts > 0 && e.vol > 0).sort((a, b) => a.ts - b.ts);
+
+  if (entries.length < 4) return null;
+
+  const now = Date.now();
+  const recentCutoff = now - 3_600_000; // last 1h
+  const priorCutoff = now - 3 * 3_600_000; // prior window: 1–3h ago
+
+  const recent = entries.filter((e) => e.ts >= recentCutoff);
+  const prior = entries.filter((e) => e.ts >= priorCutoff && e.ts < recentCutoff);
+
+  if (recent.length < 2 || prior.length < 2) return null;
+
+  const recentAvg = recent.reduce((s, e) => s + e.vol, 0) / recent.length;
+  const priorAvg = prior.reduce((s, e) => s + e.vol, 0) / prior.length;
+
+  if (priorAvg <= 0) return null;
+
+  const ratio = recentAvg / priorAvg;
+
+  let trend;
+  if (ratio >= VOLUME_ACCEL_RATIO) {
+    trend = "accelerating";
+  } else if (ratio <= VOLUME_DECEL_RATIO) {
+    trend = "decelerating";
+  } else {
+    trend = "stable";
+  }
+
+  return { trend, ratio: Math.round(ratio * 100) / 100, recentAvg: Math.round(recentAvg), priorAvg: Math.round(priorAvg) };
+}
 
 function normalizeSymbol(symbol) {
   return String(symbol || "").trim().toUpperCase();
@@ -987,6 +1048,13 @@ async function enrichCandidates(pools, s) {
   const uniqueMints = [...new Set(pools.map(p => p.base?.mint).filter(Boolean))];
   const enrichedMints = new Map();
 
+  // Build mint → pool address map for volume history lookup
+  const mintToPool = new Map();
+  for (const p of pools) {
+    const mint = p.base?.mint;
+    if (mint && !mintToPool.has(mint)) mintToPool.set(mint, p.pool);
+  }
+
   for (const mint of uniqueMints) {
     const overlay = {};
     const rateLimits = { birdeye: false, jupiter: false };
@@ -1162,6 +1230,20 @@ async function enrichCandidates(pools, s) {
     const mcapSource = overlay.birdeyeMarketCap != null ? 'BIRDEYE' : overlay.jupiterMarketCap != null ? 'JUPITER' : 'NONE';
     log("enrichment", `mint=${mint} holders=${overlay.birdeyeHolders || overlay.jupiterHolders || '?'} botPct=${overlay.botHoldersPct ?? '?'} top10Pct=${overlay.topHoldersPct ?? '?'} liquidity=${overlay.birdeyeLiquidity || overlay.jupiterLiquidity || overlay.dexLiquidity || '?'} volume=${overlay.birdeyeVolume24h || overlay.jupiterVolume24h || overlay.dexVolume24h || '?'}`);
     log("enrichment", `[QUALITY] mint=${mint} score=${overlay.qualityScore} holdersConf=${overlay.holdersConfidence} mcapConf=${overlay.marketCapConfidence} mcapSource=${mcapSource} auditConf=${overlay.auditConfidence} holders=${overlay.birdeyeHolders || overlay.jupiterHolders || '?'} mcap=${overlay.birdeyeMarketCap || overlay.jupiterMarketCap || '?'} liq=${liq}`);
+
+    // Volume trend from Meteora DatAPI /volume/history (additive enrichment, graceful fallback)
+    const poolAddr = mintToPool.get(mint);
+    if (poolAddr) {
+      const volHistory = await fetchPoolVolumeHistory(poolAddr);
+      const volTrend = computeVolumeAcceleration(volHistory);
+      if (volTrend) {
+        overlay.volumeTrend = volTrend.trend;
+        overlay.volumeAccelRatio = volTrend.ratio;
+        overlay.volumeRecentAvg = volTrend.recentAvg;
+        overlay.volumePriorAvg = volTrend.priorAvg;
+        log("enrichment", `mint=${mint} pool=${poolAddr.slice(0, 8)} volume_trend=${volTrend.trend} ratio=${volTrend.ratio}x recent=${volTrend.recentAvg} prior=${volTrend.priorAvg}`);
+      }
+    }
 
     enrichedMints.set(mint, overlay);
   }
