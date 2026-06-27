@@ -1596,6 +1596,7 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
           position:           positionAddress,
           pool:               pool.poolAddress,
           pair:               tracked?.pool_name || `${pool.tokenX}/${pool.tokenY}`,
+          amount_sol:         tracked?.amount_sol ?? null,
           base_mint:          pool.tokenXMint,
           lower_bin:          lowerBin,
           upper_bin:          upperBin,
