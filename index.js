@@ -123,6 +123,8 @@ let _activeLane = "auto";
 let _resolvedLane = "balanced";
 const _peakConfirmTimers = new Map();
 const _trailingDropConfirmTimers = new Map();
+const _lastSeenFees = new Map(); // position → last unclaimed_fees_usd (for smart maxHold)
+const MAX_HOLD_HARD_CAP_MULTIPLIER = 4;
 const TRAILING_PEAK_CONFIRM_DELAY_MS = 15_000;
 const TRAILING_PEAK_CONFIRM_TOLERANCE = 0.85;
 const TRAILING_DROP_CONFIRM_DELAY_MS = 15_000;
@@ -329,11 +331,34 @@ export async function runManagementCycle({ silent = false } = {}) {
       // Live-only deterministic exits (maxHoldHours, quickTakeProfit)
       if (!exit && !isDryRun && p.createdAt && config.management.maxHoldHours > 0) {
         const ageHours = (Date.now() - p.createdAt * 1000) / 3600000;
-        if (ageHours >= config.management.maxHoldHours) {
-          const reason = `Max hold time reached (${ageHours.toFixed(1)}h ≥ ${config.management.maxHoldHours}h)`;
-          exitMap.set(p.position, reason);
-          log("state", `Exit alert for ${p.pair}: ${reason}`);
-          continue;
+        const maxHold = config.management.maxHoldHours;
+        const hardCap = maxHold * MAX_HOLD_HARD_CAP_MULTIPLIER;
+        if (ageHours >= maxHold) {
+          if (ageHours >= hardCap) {
+            const reason = `Max hold hard cap reached (${ageHours.toFixed(1)}h ≥ ${hardCap}h)`;
+            exitMap.set(p.position, reason);
+            log("state", `Exit alert for ${p.pair}: ${reason}`);
+            _lastSeenFees.delete(p.position);
+            continue;
+          }
+          if (p.in_range === false) {
+            const reason = `Max hold time reached (${ageHours.toFixed(1)}h ≥ ${maxHold}h) — OOR, not earning`;
+            exitMap.set(p.position, reason);
+            log("state", `Exit alert for ${p.pair}: ${reason}`);
+            _lastSeenFees.delete(p.position);
+            continue;
+          }
+          const currentFees = p.unclaimed_fees_usd ?? 0;
+          const lastFees = _lastSeenFees.get(p.position);
+          if (lastFees != null && currentFees <= lastFees) {
+            const reason = `Max hold time reached (${ageHours.toFixed(1)}h ≥ ${maxHold}h) — fees stalled ($${lastFees} → $${currentFees})`;
+            exitMap.set(p.position, reason);
+            log("state", `Exit alert for ${p.pair}: ${reason}`);
+            _lastSeenFees.delete(p.position);
+            continue;
+          }
+          _lastSeenFees.set(p.position, currentFees);
+          log("state", `Holding past maxHold for ${p.pair}: still productive (in-range, fees $${currentFees})`);
         }
       }
       if (!exit && !isDryRun && p.pnl_pct != null && config.management.quickTakeProfitPct > 0) {
