@@ -1022,7 +1022,7 @@ async function enrichCandidates(pools, s) {
       const jt = j.results?.[0] || null;
       if (jt) {
         overlay.jupiterHolders = jt.holders;
-        overlay.jupiterMarketCap = jt.mcap;
+        overlay.jupiterMarketCap = jt.marketCap;
         overlay.jupiterLiquidity = jt.liquidity;
         overlay.jupiterVolume24h = jt.volume24h;
         overlay.botHoldersPct = jt.audit?.bot_holders_pct != null ? jt.audit.bot_holders_pct : overlay.botHoldersPct;
@@ -1134,15 +1134,24 @@ async function enrichCandidates(pools, s) {
 
     // Composite quality score
     const mcap = overlay.birdeyeMarketCap || overlay.jupiterMarketCap || 0;
-    const liq = overlay.birdeyeLiquidity || overlay.dexLiquidity || 0;
-    const vol = overlay.birdeyeVolume24h || overlay.dexVolume24h || 0;
+    const liq = overlay.birdeyeLiquidity || overlay.jupiterLiquidity || overlay.dexLiquidity || 0;
+    const vol = overlay.birdeyeVolume24h || overlay.jupiterVolume24h || overlay.dexVolume24h || 0;
     const numericMcap = Number(mcap) || 0;
     const numericLiq = Number(liq) || 0;
     const numericVol = Number(vol) || 0;
     const mcapScore = Math.min(1, numericMcap / 10_000_000);
     const liqScore = Math.min(1, numericLiq / 500_000);
     const volScore = Math.min(1, numericVol / 500_000);
-    let qualityScore = mcapScore * 2 + liqScore * 1.5 + volScore * 1.5;
+
+    const mcapAvailable = numericMcap > 0;
+    let qualityScore;
+    if (mcapAvailable) {
+      // Full formula: mcap ×2, liq ×1.5, vol ×1.5 (max total = 5)
+      qualityScore = mcapScore * 2 + liqScore * 1.5 + volScore * 1.5;
+    } else {
+      // No mcap: renormalize liq and vol to same max (redistribute mcap weight)
+      qualityScore = liqScore * 2.5 + volScore * 2.5;
+    }
 
     // Penalty for missing confidence (RATE_LIMITED and NONE both get penalty)
     if (overlay.holdersConfidence === 'NONE' || overlay.holdersConfidence === 'RATE_LIMITED' ||
@@ -1152,8 +1161,9 @@ async function enrichCandidates(pools, s) {
 
     overlay.qualityScore = Math.round(qualityScore * 100) / 100;
 
-    log("enrichment", `mint=${mint} holders=${overlay.birdeyeHolders || overlay.jupiterHolders || '?'} botPct=${overlay.botHoldersPct ?? '?'} top10Pct=${overlay.topHoldersPct ?? '?'} liquidity=${overlay.birdeyeLiquidity || overlay.dexLiquidity || '?'} volume=${overlay.birdeyeVolume24h || overlay.dexVolume24h || '?'}`);
-    log("enrichment", `[QUALITY] mint=${mint} score=${overlay.qualityScore} holdersConf=${overlay.holdersConfidence} mcapConf=${overlay.marketCapConfidence} auditConf=${overlay.auditConfidence} holders=${overlay.birdeyeHolders || overlay.jupiterHolders || '?'} mcap=${overlay.birdeyeMarketCap || overlay.jupiterMarketCap || '?'} liq=${liq}`);
+    const mcapSource = overlay.birdeyeMarketCap != null ? 'BIRDEYE' : overlay.jupiterMarketCap != null ? 'JUPITER' : 'NONE';
+    log("enrichment", `mint=${mint} holders=${overlay.birdeyeHolders || overlay.jupiterHolders || '?'} botPct=${overlay.botHoldersPct ?? '?'} top10Pct=${overlay.topHoldersPct ?? '?'} liquidity=${overlay.birdeyeLiquidity || overlay.jupiterLiquidity || overlay.dexLiquidity || '?'} volume=${overlay.birdeyeVolume24h || overlay.jupiterVolume24h || overlay.dexVolume24h || '?'}`);
+    log("enrichment", `[QUALITY] mint=${mint} score=${overlay.qualityScore} holdersConf=${overlay.holdersConfidence} mcapConf=${overlay.marketCapConfidence} mcapSource=${mcapSource} auditConf=${overlay.auditConfidence} holders=${overlay.birdeyeHolders || overlay.jupiterHolders || '?'} mcap=${overlay.birdeyeMarketCap || overlay.jupiterMarketCap || '?'} liq=${liq}`);
 
     enrichedMints.set(mint, overlay);
   }
