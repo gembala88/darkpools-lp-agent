@@ -36,7 +36,7 @@ async function fetchPoolVolumeHistory(poolAddress) {
   const cached = _volHistoryCache.get(poolAddress);
   if (cached && Date.now() - cached.ts < VOL_HISTORY_CACHE_TTL) return cached.data;
   try {
-    const res = await fetch(`${METEORA_DLMM_API}/pools/${poolAddress}/volume/history`);
+    const res = await fetch(`${METEORA_DLMM_API}/pools/${poolAddress}/volume/history?timeframe=1h`);
     if (!res.ok) return null;
     const data = await res.json();
     _volHistoryCache.set(poolAddress, { ts: Date.now(), data });
@@ -48,29 +48,34 @@ async function fetchPoolVolumeHistory(poolAddress) {
 
 function computeVolumeAcceleration(historyData) {
   if (!historyData) return null;
-  const buckets = Array.isArray(historyData) ? historyData : historyData?.data ?? historyData?.buckets ?? null;
-  if (!Array.isArray(buckets) || buckets.length < 4) return null;
+  const buckets = Array.isArray(historyData.data) ? historyData.data : null;
+  if (!Array.isArray(buckets) || buckets.length < 6) return null;
 
-  const entries = buckets.map((b) => ({
-    ts: Number(b.timestamp ?? b.startTime ?? b.time ?? b.t ?? 0),
-    vol: Number(b.volume ?? b.vol ?? b.value ?? b.liquidity ?? 0),
-  })).filter((e) => e.ts > 0 && e.vol > 0).sort((a, b) => a.ts - b.ts);
+  const entries = buckets
+    .map((b) => ({
+      ts: Number(b.timestamp ?? 0),
+      vol: Number(b.volume ?? 0),
+    }))
+    .filter((e) => e.ts > 0)
+    .sort((a, b) => a.ts - b.ts);
 
-  if (entries.length < 4) return null;
+  if (entries.length < 6) return null;
 
-  const now = Date.now();
-  const recentCutoff = now - 3_600_000; // last 1h
-  const priorCutoff = now - 3 * 3_600_000; // prior window: 1–3h ago
-
-  const recent = entries.filter((e) => e.ts >= recentCutoff);
-  const prior = entries.filter((e) => e.ts >= priorCutoff && e.ts < recentCutoff);
-
-  if (recent.length < 2 || prior.length < 2) return null;
+  const recent = entries.slice(-3);
+  const prior = entries.slice(-6, -3);
 
   const recentAvg = recent.reduce((s, e) => s + e.vol, 0) / recent.length;
   const priorAvg = prior.reduce((s, e) => s + e.vol, 0) / prior.length;
 
-  if (priorAvg <= 0) return null;
+  // All-zero recent volume → dead/stale pool
+  if (recentAvg <= 0) {
+    return { trend: "inactive", ratio: 0, recentAvg: 0, priorAvg: Math.round(priorAvg) };
+  }
+
+  if (priorAvg <= 0) {
+    // Prior window was dead but recent has volume → new activity
+    return { trend: "accelerating", ratio: 999, recentAvg: Math.round(recentAvg), priorAvg: 0 };
+  }
 
   const ratio = recentAvg / priorAvg;
 
@@ -1241,7 +1246,7 @@ async function enrichCandidates(pools, s) {
         overlay.volumeAccelRatio = volTrend.ratio;
         overlay.volumeRecentAvg = volTrend.recentAvg;
         overlay.volumePriorAvg = volTrend.priorAvg;
-        log("enrichment", `mint=${mint} pool=${poolAddr.slice(0, 8)} volume_trend=${volTrend.trend} ratio=${volTrend.ratio}x recent=${volTrend.recentAvg} prior=${volTrend.priorAvg}`);
+        log("enrichment", `[volume-trend] mint=${mint} pool=${poolAddr.slice(0, 8)} trend=${volTrend.trend} ratio=${volTrend.ratio}x recentAvg=${volTrend.recentAvg} priorAvg=${volTrend.priorAvg}`);
       }
     }
 
