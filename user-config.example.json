@@ -1,19 +1,20 @@
 {
   "preset": "custom",
-  "rpcUrl": "https://pump.helius-rpc.com",
+  "rpcUrl": "YOUR_RPC_URL_HERE",
   "llmBaseUrl": "",
-  "llmApiKey": "",
-  "llmModel": "minimax/minimax-m2.7",
+  "llmApiKey": "YOUR_OPENROUTER_API_KEY_HERE",
+  "llmModel": "openrouter/healer-alpha",
   "dryRun": true,
 
-  "deployAmountSol": 0.5,
-  "maxPositions": 3,
-  "minSolToOpen": 0.55,
+  "deployAmountSol": 0.05,
+  "maxPositions": 1,
+  "minSolToOpen": 0.25,
   "maxDeployAmount": 50,
-  "gasReserve": 0.2,
+  "gasReserve": 0.1,
   "positionSizePct": 0.35,
+  "liveTradingPaused": false,
 
-  "strategy": "bid_ask",
+  "strategy": "spot",
   "minBinsBelow": 35,
   "maxBinsBelow": 69,
   "defaultBinsBelow": 69,
@@ -75,9 +76,9 @@
   "temperature": 0.373,
   "maxTokens": 4096,
   "maxSteps": 20,
-  "managementModel": "minimax/minimax-m2.5",
-  "screeningModel": "minimax/minimax-m2.5",
-  "generalModel": "minimax/minimax-m2.7",
+  "managementModel": "openrouter/healer-alpha",
+  "screeningModel": "openrouter/healer-alpha",
+  "generalModel": "openrouter/healer-alpha",
 
   "darwinEnabled": true,
   "darwinWindowDays": 60,
@@ -88,9 +89,9 @@
   "darwinCeiling": 2.5,
   "darwinMinSamples": 10,
 
-  "agentId": "",
-  "publicApiKey": "",
-  "agentMeridianApiUrl": "https://api.agentmeridian.xyz/api",
+  "agentId": "YOUR_AGENT_ID_HERE",
+  "publicApiKey": "YOUR_PUBLIC_API_KEY_HERE",
+  "agentMeridianApiUrl": "",
   "lpAgentRelayEnabled": false,
   "chartIndicators": {
     "enabled": false,
@@ -103,8 +104,8 @@
     "rsiOverbought": 80,
     "requireAllIntervals": false
   },
-  "telegramChatId": "",
+  "telegramChatId": "YOUR_TELEGRAM_CHAT_ID_HERE",
   "hiveMindUrl": "",
-  "hiveMindApiKey": "",
+  "hiveMindApiKey": "YOUR_HIVEMIND_API_KEY_HERE",
   "hiveMindPullMode": "auto"
 }

@@ -396,12 +396,27 @@ export async function runManagementCycle({ silent = false } = {}) {
     const totalValue = positionData.reduce((s, p) => s + (p.total_value_usd ?? 0), 0);
     const totalUnclaimed = positionData.reduce((s, p) => s + (p.unclaimed_fees_usd ?? 0), 0);
 
+    // Fetch SOL price once for USD fallback when PnL API returns null/0
+    let solPriceUsd = 0;
+    try {
+      const res = await fetch(`https://api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112`, { signal: AbortSignal.timeout(5000) });
+      if (res.ok) {
+        const body = await res.json();
+        solPriceUsd = Number(body?.["So11111111111111111111111111111111111111112"]?.usdPrice ?? 0);
+      }
+    } catch (e) {
+      log("cron", `SOL price fetch failed: ${e.message}`);
+    }
+
     const reportLines = positionData.map((p) => {
       const act = actionMap.get(p.position);
       const inRange = p.in_range ? "🟢 IN" : `🔴 OOR ${p.minutes_out_of_range ?? 0}m`;
-      const val = (p.total_value_usd ?? 0) > 0
-        ? (config.management.solMode ? `◎${p.total_value_usd}` : `$${p.total_value_usd}`)
-        : `◎${p.amount_sol ?? "?"} depl`;
+      const ownVal = (p.total_value_usd ?? 0) > 0 ? p.total_value_usd : null;
+      const val = ownVal
+        ? (config.management.solMode ? `◎${ownVal}` : `$${ownVal}`)
+        : (p.amount_sol && solPriceUsd > 0
+            ? `◎${p.amount_sol} (~$${(p.amount_sol * solPriceUsd).toFixed(2)})`
+            : `◎${p.amount_sol ?? "?"}`);
       const unclaimed = config.management.solMode ? `◎${p.unclaimed_fees_usd ?? "?"}` : `$${p.unclaimed_fees_usd ?? "?"}`;
       const statusLabel = act.action === "INSTRUCTION" ? "HOLD (instruction)" : act.action;
       let line = `**${p.pair}** | Age: ${p.age_minutes ?? "?"}m | Val: ${val} | Unclaimed: ${unclaimed} | PnL: ${p.pnl_pct ?? "?"}% | Yield: ${p.fee_per_tvl_24h ?? "?"}% | ${inRange} | ${statusLabel}`;
@@ -450,9 +465,12 @@ export async function runManagementCycle({ silent = false } = {}) {
             ? (p.pnl_pct >= 0 ? `🟢 +${p.pnl_pct.toFixed(1)}%` : `🔻 ${p.pnl_pct.toFixed(1)}%`)
             : "⏳";
           const feeStr = p.unclaimed_fees_usd != null ? `$${p.unclaimed_fees_usd.toFixed(2)}` : "?";
-          const val = (p.total_value_usd ?? 0) > 0
-            ? `$${p.total_value_usd.toFixed(2)}`
-            : `◎${p.amount_sol ?? "?"}`;
+          const pVal = (p.total_value_usd ?? 0) > 0 ? p.total_value_usd : null;
+          const val = pVal
+            ? `$${pVal.toFixed(2)}`
+            : (p.amount_sol && solPriceUsd > 0
+                ? `◎${p.amount_sol} (~$${(p.amount_sol * solPriceUsd).toFixed(2)})`
+                : `◎${p.amount_sol ?? "?"}`);
           pinLines.push(`💰 ${p.pair || p.pool?.slice(0, 8)} | ${val} | ${p.age_minutes ?? "?"}m`);
           pinLines.push(`   PnL: ${pnlStr} | Fees: ${feeStr}`);
         }
@@ -1014,7 +1032,8 @@ export async function runScreeningCycle({ silent = false } = {}) {
           const deployArgs = {
             pool_address: pool.pool,
             amount_y: deployAmount,
-            strategy: config.strategy.strategy,
+    strategy: config.strategy.strategy,
+    liveTradingPaused: config.management.liveTradingPaused,
             bins_below: binsBelow,
             bins_above: 0,
             pool_name: pool.name,
@@ -1661,10 +1680,11 @@ function inputButton(key, label, { digits = 0 } = {}) {
 
 function renderSettingsMenu(page = "main") {
   const title = page === "main" ? "Settings menu" : `Settings: ${page}`;
-  const summary = [
+    const summary = [
     title,
     "",
     `Mode: ${config.management.solMode ? "SOL" : "USD"} | Relay: ${config.api.lpAgentRelayEnabled ? "on" : "off"}`,
+    `Live trading: ${config.management.liveTradingPaused ? "🔴 PAUSED" : "🟢 ACTIVE"}`,
     `Screening: ${config.screening.source} | GMGN KOL ${config.gmgn.requireKol ? "required" : "preferred"}`,
     `Strategy: ${config.strategy.strategy} | deploy ${config.management.deployAmountSol} SOL | max pos ${config.risk.maxPositions}`,
     `TP/SL: ${config.management.takeProfitPct}% / ${config.management.stopLossPct}% | trailing ${config.management.trailingTakeProfit ? "on" : "off"}`,
@@ -1795,6 +1815,7 @@ function renderSettingsMenu(page = "main") {
       ],
       [toggleButton("solMode", "SOL mode"), toggleButton("lpAgentRelayEnabled", "LPAgent relay")],
       [toggleButton("chartIndicatorsEnabled", "Chart indicators"), toggleButton("trailingTakeProfit", "Trailing TP")],
+      [toggleButton("liveTradingPaused", "Live trading")],
       [
         settingButton("Risk / deploy", "cfg:page:risk"),
         settingButton("Screening", "cfg:page:screen"),

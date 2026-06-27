@@ -387,6 +387,7 @@ const toolMap = {
       trailingDropPct: ["management", "trailingDropPct"],
       pnlSanityMaxDiffPct: ["management", "pnlSanityMaxDiffPct"],
       solMode: ["management", "solMode"],
+      liveTradingPaused: ["management", "liveTradingPaused"],
       minSolToOpen: ["management", "minSolToOpen"],
       deployAmountSol: ["management", "deployAmountSol"],
       gasReserve: ["management", "gasReserve"],
