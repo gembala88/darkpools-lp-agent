@@ -314,6 +314,7 @@ export const config = {
     minClaimAmount:        u.minClaimAmount        ?? 5,
     autoSwapAfterClaim:    u.autoSwapAfterClaim    ?? false,
     autoSwapForDeploy:     u.autoSwapForDeploy     ?? false,
+    minSwapBackUsd:        u.minSwapBackUsd        ?? 0.05, // skip token→SOL swap if usd below this
     outOfRangeBinsToClose: u.outOfRangeBinsToClose ?? 10,
     outOfRangeWaitMinutes: u.outOfRangeWaitMinutes ?? 30,
     oorCooldownTriggerCount: u.oorCooldownTriggerCount ?? 3,
