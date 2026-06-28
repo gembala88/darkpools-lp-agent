@@ -136,26 +136,31 @@ async function fetchFreshPoolDetail(poolAddress, timeframe = config.screening.ti
   if (!res.ok) throw new Error(`Pool Discovery API error: ${res.status} ${res.statusText}`);
   const data = await res.json();
   const detail = (data?.data || [])[0] ?? null;
-  // DLMM datapi fallback: pool discovery API often returns null for fee_active_tvl_ratio
-  if (detail && (detail.fee_active_tvl_ratio == null || detail.fee_tvl_ratio == null)) {
-    try {
-      const dlmmRes = await fetch(`${METEORA_DLMM_API}/pools/${poolAddress}`, { signal: AbortSignal.timeout(5000) });
-      if (dlmmRes.ok) {
-        const dlmmPool = await dlmmRes.json();
-        const rawFeeTvl = dlmmPool?.fee_tvl_ratio ?? dlmmPool?.fee_active_tvl_ratio;
-        if (rawFeeTvl != null) {
-          const resolved = typeof rawFeeTvl === "number" ? rawFeeTvl
-            : typeof rawFeeTvl === "string" ? Number(rawFeeTvl)
-            : typeof rawFeeTvl === "object" && !Array.isArray(rawFeeTvl)
-              ? (rawFeeTvl[timeframe] ?? rawFeeTvl["1h"] ?? rawFeeTvl["30m"] ?? null)
-            : null;
-          if (resolved != null && Number.isFinite(resolved)) {
-            detail.fee_active_tvl_ratio = resolved;
-            detail.fee_tvl_ratio = resolved;
+  // DLMM datapi fallback: pool discovery API often returns null or near-zero fee_active_tvl_ratio
+  if (detail) {
+    const existingFeeTvl = detail.fee_active_tvl_ratio ?? detail.fee_tvl_ratio;
+    const threshold = numberOrNull(config.screening.minFeeActiveTvlRatio) ?? 0.001;
+    const needsFallback = existingFeeTvl == null || (typeof existingFeeTvl === "number" && existingFeeTvl < threshold && existingFeeTvl >= 0);
+    if (needsFallback) {
+      try {
+        const dlmmRes = await fetch(`${METEORA_DLMM_API}/pools/${poolAddress}`, { signal: AbortSignal.timeout(5000) });
+        if (dlmmRes.ok) {
+          const dlmmPool = await dlmmRes.json();
+          const rawFeeTvl = dlmmPool?.fee_tvl_ratio ?? dlmmPool?.fee_active_tvl_ratio;
+          if (rawFeeTvl != null) {
+            const resolved = typeof rawFeeTvl === "number" ? rawFeeTvl
+              : typeof rawFeeTvl === "string" ? Number(rawFeeTvl)
+              : typeof rawFeeTvl === "object" && !Array.isArray(rawFeeTvl)
+                ? (rawFeeTvl[timeframe] ?? rawFeeTvl["1h"] ?? rawFeeTvl["30m"] ?? null)
+              : null;
+            if (resolved != null && Number.isFinite(resolved) && resolved > threshold) {
+              detail.fee_active_tvl_ratio = resolved;
+              detail.fee_tvl_ratio = resolved;
+            }
           }
         }
-      }
-    } catch {}
+      } catch {}
+    }
   }
   return detail;
 }
