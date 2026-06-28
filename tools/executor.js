@@ -127,6 +127,34 @@ function poolDetailVolatility(pool) {
   return numberOrNull(pool?.volatility);
 }
 
+/**
+ * Resolve a fee_tvl_ratio that may be a number, string, or timeframe-keyed object.
+ * Matches screening.js resolveFeeTvlRatio semantics.
+ */
+function resolveFreshFeeTvl(raw, timeframe) {
+  if (raw == null) return null;
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : null;
+  if (typeof raw === "string") {
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    const tf = raw[timeframe];
+    if (tf != null) {
+      const n = Number(tf);
+      if (Number.isFinite(n)) return n;
+    }
+    for (const key of ["1h", "30m", "2h", "4h", "12h", "24h"]) {
+      const val = raw[key];
+      if (val != null) {
+        const n = Number(val);
+        if (Number.isFinite(n)) return n;
+      }
+    }
+  }
+  return null;
+}
+
 async function fetchFreshPoolDetail(poolAddress, timeframe = config.screening.timeframe || "5m") {
   const encodedTimeframe = encodeURIComponent(timeframe);
   const filter = encodeURIComponent(`pool_address=${poolAddress}`);
@@ -137,9 +165,9 @@ async function fetchFreshPoolDetail(poolAddress, timeframe = config.screening.ti
   const detail = (data?.data || [])[0] ?? null;
   // DLMM datapi fallback: pool discovery API often returns null or near-zero fee_active_tvl_ratio
   if (detail) {
-    const existingFeeTvl = detail.fee_active_tvl_ratio ?? detail.fee_tvl_ratio;
+    const existingFeeTvl = numberOrNull(detail.fee_active_tvl_ratio ?? detail.fee_tvl_ratio);
     const threshold = numberOrNull(config.screening.minFeeActiveTvlRatio) ?? 0.001;
-    const needsFallback = existingFeeTvl == null || (typeof existingFeeTvl === "number" && existingFeeTvl < threshold && existingFeeTvl >= 0);
+    const needsFallback = existingFeeTvl == null || (existingFeeTvl < threshold && existingFeeTvl >= 0);
     if (needsFallback) {
       try {
         const dlmmRes = await fetch(`${METEORA_DLMM_API}/pools/${poolAddress}`, { signal: AbortSignal.timeout(5000) });
@@ -147,12 +175,9 @@ async function fetchFreshPoolDetail(poolAddress, timeframe = config.screening.ti
           const dlmmPool = await dlmmRes.json();
           const rawFeeTvl = dlmmPool?.fee_tvl_ratio ?? dlmmPool?.fee_active_tvl_ratio;
           if (rawFeeTvl != null) {
-            const resolved = typeof rawFeeTvl === "number" ? rawFeeTvl
-              : typeof rawFeeTvl === "string" ? Number(rawFeeTvl)
-              : typeof rawFeeTvl === "object" && !Array.isArray(rawFeeTvl)
-                ? (rawFeeTvl[timeframe] ?? rawFeeTvl["1h"] ?? rawFeeTvl["30m"] ?? null)
-              : null;
+            const resolved = resolveFreshFeeTvl(rawFeeTvl, timeframe);
             if (resolved != null && Number.isFinite(resolved) && resolved > threshold) {
+              log("executor", `[deploy-fee-tvl] pool=${poolAddress.slice(0,8)} pooldiscovery=${existingFeeTvl ?? "null"} dlmm_resolved=${resolved} using=${resolved}`);
               detail.fee_active_tvl_ratio = resolved;
               detail.fee_tvl_ratio = resolved;
             }
