@@ -10,7 +10,7 @@ const DATAPI_JUP = "https://datapi.jup.ag/v1";
 const METEORA_DLMM_API = "https://dlmm.datapi.meteora.ag";
 
 const POOL_DISCOVERY_BASE = "https://pool-discovery-api.datapi.meteora.ag";
-const MIN_VOLATILITY_TIMEFRAME = "30m";
+const MIN_VOLATILITY_TIMEFRAME = "1h";
 const TIMEFRAME_MINUTES = {
   "5m": 5,
   "30m": 30,
@@ -189,8 +189,12 @@ function getVolatilityTimeframe(sourceTimeframe) {
   const source = String(sourceTimeframe || "").trim();
   const sourceMinutes = TIMEFRAME_MINUTES[source];
   const minMinutes = TIMEFRAME_MINUTES[MIN_VOLATILITY_TIMEFRAME];
-  return sourceMinutes != null && sourceMinutes >= minMinutes ? source : MIN_VOLATILITY_TIMEFRAME;
+  const baseTf = sourceMinutes != null && sourceMinutes >= minMinutes ? source : MIN_VOLATILITY_TIMEFRAME;
+  // Return just the base timeframe — fallback logic on actual fetched values happens in applyVolatilityTimeframe
+  return baseTf;
 }
+
+const VOLATILITY_FALLBACK_TIMEFRAMES = ["1h", "12h", "24h"];
 
 function getRawPoolScreeningRejectReason(pool, s) {
   const base = pool?.token_x || {};
@@ -345,21 +349,41 @@ async function applyVolatilityTimeframe(rawPools, sourceTimeframe) {
   if (sourceTimeframe === volatilityTimeframe) return rawPools;
 
   const uniquePoolAddresses = [...new Set(rawPools.map((pool) => pool?.pool_address).filter(Boolean))];
-  const longResults = await Promise.allSettled(
-    uniquePoolAddresses.map((poolAddress) =>
-      fetchPoolDiscoveryDetail({ poolAddress, timeframe: volatilityTimeframe })
-        .then((pool) => ({
-          poolAddress,
-          volatility: numeric(pool?.volatility),
-          volume: numeric(pool?.volume),
-        }))
-    )
-  );
 
+  // Try volatility timeframes in order — fall back to longer ones if value is 0/missing
+  const timeframesToTry = [...new Set([volatilityTimeframe, ...VOLATILITY_FALLBACK_TIMEFRAMES])];
   const metricsByPool = new Map();
-  for (const result of longResults) {
-    if (result.status !== "fulfilled") continue;
-    metricsByPool.set(result.value.poolAddress, result.value);
+
+  for (const tf of timeframesToTry) {
+    if (tf === sourceTimeframe) continue;
+    const remaining = uniquePoolAddresses.filter((addr) => {
+      const existing = metricsByPool.get(addr);
+      return !existing || existing.volatility == null || existing.volatility <= 0;
+    });
+    if (remaining.length === 0) break;
+
+    const tfResults = await Promise.allSettled(
+      remaining.map((poolAddress) =>
+        fetchPoolDiscoveryDetail({ poolAddress, timeframe: tf })
+          .then((pool) => ({
+            poolAddress,
+            volatility: numeric(pool?.volatility),
+            volume: numeric(pool?.volume),
+            timeframe: tf,
+          }))
+      )
+    );
+
+    for (const result of tfResults) {
+      if (result.status !== "fulfilled" || !result.value) continue;
+      const cur = metricsByPool.get(result.value.poolAddress);
+      // Only overwrite if existing is null/0 and this one has a usable value
+      if (!cur || cur.volatility == null || cur.volatility <= 0) {
+        if (result.value.volatility != null && result.value.volatility > 0) {
+          metricsByPool.set(result.value.poolAddress, result.value);
+        }
+      }
+    }
   }
 
   for (const pool of rawPools) {
@@ -367,12 +391,14 @@ async function applyVolatilityTimeframe(rawPools, sourceTimeframe) {
     const metrics = metricsByPool.get(pool.pool_address);
     if (!metrics) continue;
 
-    pool[`volume_${volatilityTimeframe}`] = metrics.volume;
-    pool[`volatility_${volatilityTimeframe}`] = metrics.volatility;
+    pool[`volume_${metrics.timeframe}`] = metrics.volume;
+    pool[`volatility_${metrics.timeframe}`] = metrics.volatility;
 
     // Use longer-timeframe values as the canonical ones for filtering
     if (metrics.volatility != null) pool.volatility = metrics.volatility;
     if (metrics.volume != null) pool.volume = metrics.volume;
+
+    log("screening", `[volatility-debug] pool=${pool.name} tf=${metrics.timeframe} volatility=${metrics.volatility} usable=${isUsableVolatility(metrics.volatility)}`);
   }
 
   return rawPools;

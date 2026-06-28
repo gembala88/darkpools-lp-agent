@@ -32,13 +32,10 @@ const GMGN_CONFIG_PATH = repoPath("gmgn-config.json");
 const LIVE_DAILY_PNL_PATH = repoPath("data", "live-daily-pnl.json");
 const POOL_DISCOVERY_BASE = "https://pool-discovery-api.datapi.meteora.ag";
 const METEORA_DLMM_API = "https://dlmm.datapi.meteora.ag";
-const MIN_VOLATILITY_TIMEFRAME = "30m";
+const MIN_VOLATILITY_TIMEFRAME = "1h";
 const TIMEFRAME_MINUTES = {
   "5m": 5,
-  "30m": 30,
   "1h": 60,
-  "2h": 120,
-  "4h": 240,
   "12h": 720,
   "24h": 1440,
 };
@@ -88,6 +85,8 @@ function getVolatilityTimeframe(sourceTimeframe) {
   const minMinutes = TIMEFRAME_MINUTES[MIN_VOLATILITY_TIMEFRAME];
   return sourceMinutes != null && sourceMinutes >= minMinutes ? source : MIN_VOLATILITY_TIMEFRAME;
 }
+
+const VOLATILITY_FALLBACK_TIMEFRAMES = ["1h", "12h", "24h"];
 
 function poolDetailTvl(pool) {
   return numberOrNull(pool?.tvl ?? pool?.active_tvl ?? pool?.liquidity);
@@ -253,18 +252,27 @@ async function validateDeployPoolThresholds(args) {
 
   const volatilityTimeframe = getVolatilityTimeframe(config.screening.timeframe || "5m");
   let volatilityDetail = detail;
-  if ((config.screening.timeframe || "5m") !== volatilityTimeframe) {
-    try {
-      volatilityDetail = await fetchFreshPoolDetail(args.pool_address, volatilityTimeframe);
-    } catch (error) {
-      return {
-        pass: false,
-        reason: `Could not verify pool ${volatilityTimeframe} volatility before deploy: ${error.message}`,
-      };
+  let volatility = poolDetailVolatility(volatilityDetail);
+  let usedTf = config.screening.timeframe || "5m";
+
+  // Try fallback timeframes if volatility is 0/missing at the source timeframe
+  if (volatility == null || volatility <= 0) {
+    const timeframesToTry = [...new Set([volatilityTimeframe, ...VOLATILITY_FALLBACK_TIMEFRAMES])];
+    for (const tf of timeframesToTry) {
+      if (tf === usedTf) continue;
+      try {
+        const fallbackDetail = await fetchFreshPoolDetail(args.pool_address, tf);
+        const fallbackVol = poolDetailVolatility(fallbackDetail);
+        if (fallbackVol != null && fallbackVol > 0) {
+          volatilityDetail = fallbackDetail;
+          volatility = fallbackVol;
+          usedTf = tf;
+          break;
+        }
+      } catch {}
     }
   }
 
-  const volatility = poolDetailVolatility(volatilityDetail);
   if (volatility == null || volatility <= 0) {
     return {
       pass: false,
