@@ -1393,6 +1393,9 @@ export async function getTopCandidates({ limit = 10 } = {}) {
   // Multi-source discovery: run all sources in parallel, merge by mint, deduplicate
   const allPools = await discoverAll();
   let pools = [...allPools];
+
+  // Apply volatility timeframe adjustment (1h/12h/24h fallback) so pools aren't rejected with 0 volatility
+  pools = await applyVolatilityTimeframe(pools, config.screening.timeframe);
   const filteredOut = [];
 
   log("discovery", `raw candidates per source (see individual [DISCOVERY] lines above)`);
@@ -1437,11 +1440,13 @@ export async function getTopCandidates({ limit = 10 } = {}) {
           return false;
         }
         if (!isUsableVolatility(p.volatility)) {
+          log("screening", `[volatility-debug] pool=${p.name} volatility=${p.volatility} tf=${p.volatility_timeframe || "?"} usable=false — rejected`);
           pushFilteredReason(filteredOut, p, `volatility ${p.volatility ?? "unknown"} unusable`);
           return false;
         }
         const maxVol = config.screening.maxVolatility;
         if (maxVol != null && maxVol > 0 && numeric(p.volatility) > maxVol) {
+          log("screening", `[volatility-debug] pool=${p.name} volatility=${numeric(p.volatility)} tf=${p.volatility_timeframe || "?"} maxVol=${maxVol} ceilingExceeded=true — API scale may be 0-1000 vs config 0-5`);
           pushFilteredReason(filteredOut, p, `volatility ${numeric(p.volatility)} exceeds ceiling ${maxVol} — IL risk too high`);
           return false;
         }

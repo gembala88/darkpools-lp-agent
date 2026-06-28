@@ -769,6 +769,35 @@ export async function executeTool(name, args) {
     if (!args.deploy_source) args.deploy_source = "ai_chosen";
   }
 
+  // ─── Auto-swap SOL→USDC/USDT before non-SOL quote deploy ─────────
+  if (name === "deploy_position" && process.env.DRY_RUN !== "true" && config.management?.autoSwapForDeploy && args._quoteSwapNeeded) {
+    try {
+      const swap = args._quoteSwapNeeded;
+      const missingAmount = Math.max(0, swap.needed - swap.have);
+      const bufferAmount = missingAmount * 1.05; // 5% buffer for slippage
+      const solBuffer = config.management.gasReserve ?? 0.2;
+      const balance = await getWalletBalances();
+      const solAvailable = Math.max(0, balance.sol - solBuffer);
+      const solForSwap = Math.min(bufferAmount, solAvailable);
+      if (solForSwap <= 0.001) {
+        return { blocked: true, reason: `Insufficient SOL to swap for ${swap.symbol}: have ${balance.sol.toFixed(4)} SOL, need at least ${solBuffer.toFixed(2)} gas reserve.` };
+      }
+      log("deploy", `[auto-swap-deploy] swapping ${solForSwap.toFixed(4)} SOL → ${swap.symbol} for ${args.pool_name || args.pool_address?.slice(0, 8)} deploy (have ${swap.have} ${swap.symbol}, need ${swap.needed} ${swap.symbol})`);
+      const swapResult = await swapToken({
+        input_mint: "So11111111111111111111111111111111111111112",
+        output_mint: swap.mint,
+        amount: solForSwap,
+      });
+      if (!swapResult || swapResult.error || swapResult.success === false) {
+        return { blocked: true, reason: `Auto-swap SOL→${swap.symbol} failed: ${swapResult?.error || "unknown error"}. Deploy cancelled.` };
+      }
+      log("deploy", `[auto-swap-deploy] swap succeeded: ${solForSwap.toFixed(4)} SOL → ${swap.symbol}`);
+      delete args._quoteSwapNeeded;
+    } catch (swapErr) {
+      return { blocked: true, reason: `Auto-swap SOL→${args._quoteSwapNeeded?.symbol || "quote"} failed: ${swapErr.message}. Deploy cancelled.` };
+    }
+  }
+
   // ─── Execute ──────────────────────────────
   try {
     const result = await fn(args);
@@ -1186,10 +1215,15 @@ async function runSafetyChecks(name, args) {
               const tokenBalance = balance.tokens?.find(t => t.mint === quoteAddr);
               const tokenAmount = tokenBalance?.balance ?? 0;
               if (tokenAmount < amountY) {
-                return {
-                  pass: false,
-                  reason: `Insufficient ${quoteSymbol}: have ${tokenAmount} ${quoteSymbol}, need ${amountY} ${quoteSymbol} for deploy.`,
-                };
+                if (config.management?.autoSwapForDeploy) {
+                  // Don't reject — auto-swap will happen before deploy
+                  args._quoteSwapNeeded = { mint: quoteAddr, symbol: quoteSymbol, needed: amountY, have: tokenAmount };
+                } else {
+                  return {
+                    pass: false,
+                    reason: `Insufficient ${quoteSymbol}: have ${tokenAmount} ${quoteSymbol}, need ${amountY} ${quoteSymbol} for deploy.`,
+                  };
+                }
               }
             }
           }
