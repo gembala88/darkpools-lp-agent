@@ -22,9 +22,6 @@ const TIMEFRAME_MINUTES = {
 };
 const PVP_SHORTLIST_LIMIT = 2;
 const PVP_RIVAL_LIMIT = 2;
-const PVP_MIN_ACTIVE_TVL = 5_000;
-const PVP_MIN_HOLDERS = 500;
-const PVP_MIN_GLOBAL_FEES_SOL = 30;
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -73,8 +70,6 @@ function resolveFeeTvlRatio(rawPool, timeframe) {
 // Volume history cache (60s TTL, keyed by pool address)
 const _volHistoryCache = new Map();
 const VOL_HISTORY_CACHE_TTL = 60_000;
-const VOLUME_ACCEL_RATIO = 1.5;
-const VOLUME_DECEL_RATIO = 0.5;
 
 async function fetchPoolVolumeHistory(poolAddress) {
   const cached = _volHistoryCache.get(poolAddress);
@@ -123,10 +118,12 @@ function computeVolumeAcceleration(historyData) {
 
   const ratio = recentAvg / priorAvg;
 
+  const accelRatio = config.screening.volumeAccelRatio ?? 1.5;
+  const decelRatio = config.screening.volumeDecelRatio ?? 0.5;
   let trend;
-  if (ratio >= VOLUME_ACCEL_RATIO) {
+  if (ratio >= accelRatio) {
     trend = "accelerating";
-  } else if (ratio <= VOLUME_DECEL_RATIO) {
+  } else if (ratio <= decelRatio) {
     trend = "decelerating";
   } else {
     trend = "stable";
@@ -460,7 +457,8 @@ async function enrichDiscordSignalLaunchpads(rawPools) {
 }
 
 async function findRivalPool(mint) {
-  const url = `https://dlmm.datapi.meteora.ag/pools?query=${encodeURIComponent(mint)}&sort_by=${encodeURIComponent("tvl:desc")}&filter_by=${encodeURIComponent(`tvl>${PVP_MIN_ACTIVE_TVL}`)}`;
+  const minTvl = config.screening.pvpMinActiveTvl ?? 5000;
+  const url = `https://dlmm.datapi.meteora.ag/pools?query=${encodeURIComponent(mint)}&sort_by=${encodeURIComponent("tvl:desc")}&filter_by=${encodeURIComponent(`tvl>${minTvl}`)}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`rival pool search ${res.status}`);
   const data = await res.json();
@@ -496,7 +494,9 @@ async function enrichPvpRisk(pools) {
     for (const rival of rivalAssets) {
       const rivalHolders = Number(rival?.holderCount || 0);
       const rivalFees = Number(rival?.fees || 0);
-      if (rivalHolders < PVP_MIN_HOLDERS || rivalFees < PVP_MIN_GLOBAL_FEES_SOL) continue;
+      const minHolders = config.screening.pvpMinHolders ?? 500;
+      const minFees = config.screening.pvpMinGlobalFeesSol ?? 30;
+      if (rivalHolders < minHolders || rivalFees < minFees) continue;
 
       const rivalPool = await findRivalPool(rival.id).catch(() => null);
       if (!rivalPool) continue;

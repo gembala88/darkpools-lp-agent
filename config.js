@@ -252,6 +252,13 @@ export const config = {
     enableHawkfi:       u.enableHawkfi       ?? false,
     enableGmgn:         u.enableGmgn         ?? false,
     requireVerifiedOrShield: u.requireVerifiedOrShield ?? true,
+    // PVP guard thresholds (nano-editable)
+    pvpMinActiveTvl:      u.pvpMinActiveTvl     ?? 5000,
+    pvpMinHolders:        u.pvpMinHolders       ?? 500,
+    pvpMinGlobalFeesSol:  u.pvpMinGlobalFeesSol ?? 30,
+    // Volume-trend thresholds (nano-editable)
+    volumeAccelRatio:     u.volumeAccelRatio    ?? 1.5,
+    volumeDecelRatio:     u.volumeDecelRatio    ?? 0.5,
   },
 
   gmgn: {
