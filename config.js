@@ -217,8 +217,6 @@ export const config = {
     excludeHighSupplyConcentration: u.excludeHighSupplyConcentration ?? true,
     minFeeActiveTvlRatio: u.minFeeActiveTvlRatio ?? 0.05,
     allowedQuoteAssets:   u.allowedQuoteAssets   ?? ["SOL", "USDC", "USDT"],
-    hardMinTvlLive:       u.hardMinTvlLive    ?? 50000,
-    hardMinTvlDryRun:     u.hardMinTvlDryRun  ?? 5000,
     minTvl:               u.minTvl            ?? 5_000,
     maxTvl:            u.maxTvl !== undefined ? u.maxTvl : 500_000,
     maxVolatility:     u.maxVolatility     ?? 1.5,
