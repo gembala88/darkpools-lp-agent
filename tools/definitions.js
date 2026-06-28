@@ -196,7 +196,8 @@ WARNING: This executes a real on-chain transaction. Check DRY_RUN mode.`,
           initial_value_usd: { type: "number", description: "Estimated USD value being deployed" },
           conviction_score: { type: "number", description: "Your conviction level 0-100 for this deploy. 100 = extremely confident. If uncertain, reflect lower." },
           conviction_reason: { type: "string", description: "1-2 sentence explanation of why this pool is worth deploying. This becomes learning data." },
-          key_factor: { type: "string", description: "The single most-cited metric driving this decision (e.g. organic_score, volume, low_concentration, holder_distribution, fee_yield, volatility, token_narrative, smart_wallet_presence)" }
+          key_factor: { type: "string", description: "The single most-cited metric driving this decision (e.g. organic_score, volume, low_concentration, holder_distribution, fee_yield, volatility, token_narrative, smart_wallet_presence)" },
+          unverified: { type: "boolean", description: "Set to true if the token is unverified on Jupiter (no JupShield). When true, system caps deploy to a smaller amount for rug protection." }
         },
         required: ["pool_address"]
       }

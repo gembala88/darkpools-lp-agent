@@ -1524,20 +1524,30 @@ export async function getTopCandidates({ limit = 10 } = {}) {
       const enr = pool._enrichment || {};
       if (enr.jupVerified === undefined && enr.jupShielded === undefined) {
         // Un-enriched pool — cannot verify, pass through
+        pool.unverified = true;
         return true;
       }
       const isVerified = enr.jupVerified === true;
       const hasShield = enr.jupShielded === true;
       // Token must be either verified OR shielded to pass
       if (enr.jupVerified === false && enr.jupShielded === false) {
-        pushFilteredReason(filteredOut, pool, "token not verified/JupShield on Jupiter");
-        log("screening", `Verified+shield filter: ${pool.name} — NOT verified and no JupShield`);
-        return false;
+        const requireVerified = config.screening.requireVerifiedOrShield !== false;
+        if (requireVerified) {
+          pushFilteredReason(filteredOut, pool, "token not verified/JupShield on Jupiter");
+          log("screening", `Verified+shield filter: ${pool.name} — NOT verified and no JupShield`);
+          return false;
+        }
+        // Allow unverified but tag as higher risk
+        pool.unverified = true;
+        log("screening", `Unverified token allowed: ${pool.name} — tagged as higher risk, reduced deploy size`);
+        return true;
       }
       if (!isVerified && enr.jupVerified === false) {
         // Not verified, but has shield — allow (shield implies monitored)
+        pool.unverified = false;
         return true;
       }
+      pool.unverified = !isVerified && !hasShield;
       return true;
     });
     eligible.splice(0, eligible.length, ...verifiedEligible);
@@ -1760,6 +1770,7 @@ function condensePool(p) {
     fee_change_pct: fix(p.fee_change_pct, 1),
     swap_count: p.swap_count,
     unique_traders: p.unique_traders,
+    unverified: p.unverified ?? null,
   };
 }
 

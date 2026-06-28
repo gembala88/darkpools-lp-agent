@@ -1149,6 +1149,17 @@ async function runSafetyChecks(name, args) {
         };
       }
 
+      // Cap deploy amount for unverified tokens (rug protection)
+      if (args.unverified === true) {
+        const unverifiedCap = config.management.unverifiedDeployAmountSol ?? 0.05;
+        if (amountY > unverifiedCap) {
+          const cappedAmountY = Math.min(amountY, unverifiedCap);
+          args.amount_y = cappedAmountY;
+          args.amount_sol = cappedAmountY;
+          log("deploy", `[deploy-size] pool=${args.pool_name || args.pool_address?.slice(0, 8)} unverified=true using reduced amount ${cappedAmountY} SOL (rug protection)`);
+        }
+      }
+
       // Require explicit ENABLE_REAL_DEPLOYMENT for real transactions
       if (process.env.DRY_RUN !== "true" && process.env.ENABLE_REAL_DEPLOYMENT !== "true") {
         return {
