@@ -1406,6 +1406,7 @@ export async function getTopCandidates({ limit = 10 } = {}) {
   const { positions } = await getMyPositions();
   const occupiedPools = new Set(positions.map((p) => p.pool));
   const occupiedMints = new Set(positions.map((p) => p.base_mint).filter(Boolean));
+  log("screening", `[dedup-mint] occupied mints: ${[...occupiedMints].join(", ") || "(none)"}`);
   // In DRY RUN, also exclude pools with open dry-run positions (getMyPositions returns 0 on-chain)
   if (process.env.DRY_RUN === "true") {
     try {
@@ -1413,7 +1414,10 @@ export async function getTopCandidates({ limit = 10 } = {}) {
       const dryOpen = getDryRunPositions();
       for (const p of dryOpen) {
         if (p.pool_address) occupiedPools.add(p.pool_address);
-        if (p.base_mint) occupiedMints.add(p.base_mint);
+        if (p.base_mint) {
+          occupiedMints.add(p.base_mint);
+          log("screening", `[dedup-mint] dry-run position adds mint ${p.base_mint}`);
+        }
       }
     } catch (e) { /* non-critical */ }
   }
@@ -1455,7 +1459,9 @@ export async function getTopCandidates({ limit = 10 } = {}) {
         pushFilteredReason(filteredOut, p, "already have an open position in this pool");
         return false;
       }
-      if (occupiedMints.has(p.base?.mint)) {
+      const candidateMint = p.base?.mint ?? p.base_mint ?? p.token_x?.address;
+      if (candidateMint && occupiedMints.has(candidateMint)) {
+        log("screening", `[dedup-mint] skipping ${p.name} mint=${candidateMint} — already holding this token`);
         pushFilteredReason(filteredOut, p, "already holding this base token in another pool");
         return false;
       }
