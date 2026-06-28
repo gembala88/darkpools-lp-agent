@@ -376,19 +376,19 @@ WARNING: This executes a real on-chain transaction.`,
         },
         required: ["input_mint", "output_mint", "amount"]
       }
-    },
-    {
-      type: "function",
-      function: {
-        name: "sweep_stuck_tokens",
-        description: `Scan wallet for leftover non-SOL/USDC/USDT tokens from previous closes and swap each back to SOL.
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "sweep_stuck_tokens",
+      description: `Scan wallet for leftover non-SOL/USDC/USDT tokens from previous closes and swap each back to SOL.
 Each token is checked via Jupiter quote first — only viable routes are executed.
 Use this to reclaim capital stuck as forgotten tokens in the wallet.`,
-        parameters: {
-          type: "object",
-          properties: {},
-          required: []
-        }
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
       }
     }
   },
