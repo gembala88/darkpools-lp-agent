@@ -182,7 +182,7 @@ async function validateDeployPoolThresholds(args) {
 
   // Hard minimum TVL gate — always applied, even in DRY RUN (junk pools rejected outright)
   const isDryRun = process.env.DRY_RUN === "true";
-  const hardMinTvl = isDryRun ? 5_000 : 50_000;
+  const hardMinTvl = isDryRun ? (config.screening.hardMinTvlDryRun ?? 5000) : (config.screening.hardMinTvlLive ?? 50000);
   if (tvl == null) {
     return {
       pass: false,
@@ -190,7 +190,7 @@ async function validateDeployPoolThresholds(args) {
     };
   }
   if (tvl < hardMinTvl) {
-    log("deploy", `[hard-min-tvl] pool=${args.pool_name || args.pool_address?.slice(0, 8)} tvl=${tvl} below floor ${hardMinTvl} — rejected`);
+    log("deploy", `[hard-min-tvl] pool=${args.pool_name || args.pool_address?.slice(0, 8)} tvl=${tvl} below floor ${hardMinTvl} — rejected | raw: tvl=${detail?.tvl} active_tvl=${detail?.active_tvl} liquidity=${detail?.liquidity}`);
     return {
       pass: false,
       reason: `Pool TVL $${tvl} is below hard minimum $${hardMinTvl}. Junk/reality check.`,
