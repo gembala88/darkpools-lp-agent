@@ -31,6 +31,7 @@ const USER_CONFIG_PATH = repoPath("user-config.json");
 const GMGN_CONFIG_PATH = repoPath("gmgn-config.json");
 const LIVE_DAILY_PNL_PATH = repoPath("data", "live-daily-pnl.json");
 const POOL_DISCOVERY_BASE = "https://pool-discovery-api.datapi.meteora.ag";
+const METEORA_DLMM_API = "https://dlmm.datapi.meteora.ag";
 const MIN_VOLATILITY_TIMEFRAME = "30m";
 const TIMEFRAME_MINUTES = {
   "5m": 5,
@@ -134,7 +135,29 @@ async function fetchFreshPoolDetail(poolAddress, timeframe = config.screening.ti
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Pool Discovery API error: ${res.status} ${res.statusText}`);
   const data = await res.json();
-  return (data?.data || [])[0] ?? null;
+  const detail = (data?.data || [])[0] ?? null;
+  // DLMM datapi fallback: pool discovery API often returns null for fee_active_tvl_ratio
+  if (detail && (detail.fee_active_tvl_ratio == null || detail.fee_tvl_ratio == null)) {
+    try {
+      const dlmmRes = await fetch(`${METEORA_DLMM_API}/pools/${poolAddress}`, { signal: AbortSignal.timeout(5000) });
+      if (dlmmRes.ok) {
+        const dlmmPool = await dlmmRes.json();
+        const rawFeeTvl = dlmmPool?.fee_tvl_ratio ?? dlmmPool?.fee_active_tvl_ratio;
+        if (rawFeeTvl != null) {
+          const resolved = typeof rawFeeTvl === "number" ? rawFeeTvl
+            : typeof rawFeeTvl === "string" ? Number(rawFeeTvl)
+            : typeof rawFeeTvl === "object" && !Array.isArray(rawFeeTvl)
+              ? (rawFeeTvl[timeframe] ?? rawFeeTvl["1h"] ?? rawFeeTvl["30m"] ?? null)
+            : null;
+          if (resolved != null && Number.isFinite(resolved)) {
+            detail.fee_active_tvl_ratio = resolved;
+            detail.fee_tvl_ratio = resolved;
+          }
+        }
+      }
+    } catch {}
+  }
+  return detail;
 }
 
 async function validateDeployPoolThresholds(args) {
