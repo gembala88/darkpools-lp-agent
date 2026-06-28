@@ -176,14 +176,18 @@ async function fetchFreshPoolDetail(poolAddress, timeframe = config.screening.ti
           const rawFeeTvl = dlmmPool?.fee_tvl_ratio ?? dlmmPool?.fee_active_tvl_ratio;
           if (rawFeeTvl != null) {
             const resolved = resolveFreshFeeTvl(rawFeeTvl, timeframe);
-            if (resolved != null && Number.isFinite(resolved) && resolved > threshold) {
+            if (resolved != null && Number.isFinite(resolved) && resolved > 0) {
               log("executor", `[deploy-fee-tvl] pool=${poolAddress.slice(0,8)} pooldiscovery=${existingFeeTvl ?? "null"} dlmm_resolved=${resolved} using=${resolved}`);
               detail.fee_active_tvl_ratio = resolved;
               detail.fee_tvl_ratio = resolved;
             }
           }
+        } else {
+          log("executor_warn", `[deploy-fee-tvl] DLMM API ${dlmmRes.status} for pool ${poolAddress.slice(0,8)}`);
         }
-      } catch {}
+      } catch (e) {
+        log("executor_warn", `[deploy-fee-tvl] DLMM fetch failed for ${poolAddress.slice(0,8)}: ${e.message}`);
+      }
     }
   }
   return detail;
@@ -256,14 +260,18 @@ async function validateDeployPoolThresholds(args) {
     if (feeActiveTvlRatio != null) {
       log("deploy", `[DRY_RUN] fee/TVL gate BYPASSED for learning (pool ratio=${feeActiveTvlRatio}%)`);
     }
-  } else if (
-    minFeeActiveTvlRatio != null &&
-    minFeeActiveTvlRatio > 0 &&
-    (feeActiveTvlRatio == null || feeActiveTvlRatio < minFeeActiveTvlRatio)
-  ) {
+  } else if (feeActiveTvlRatio != null) {
+    log("deploy", `[deploy-fee-check] pool=${args.pool_name || args.pool_address?.slice(0,8)} feeActiveTvlRatio=${feeActiveTvlRatio} min=${minFeeActiveTvlRatio}`);
+    if (minFeeActiveTvlRatio != null && minFeeActiveTvlRatio > 0 && feeActiveTvlRatio < minFeeActiveTvlRatio) {
+      return {
+        pass: false,
+        reason: `Pool fee/active-TVL ${feeActiveTvlRatio}% is below configured minFeeActiveTvlRatio ${minFeeActiveTvlRatio}%.`,
+      };
+    }
+  } else if (minFeeActiveTvlRatio != null && minFeeActiveTvlRatio > 0) {
     return {
       pass: false,
-      reason: `Pool fee/active-TVL ${feeActiveTvlRatio ?? "unknown"}% is below configured minFeeActiveTvlRatio ${minFeeActiveTvlRatio}%.`,
+      reason: `Pool fee/active-TVL unknown (could not verify) — required by minFeeActiveTvlRatio ${minFeeActiveTvlRatio}%.`,
     };
   }
 
