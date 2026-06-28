@@ -213,10 +213,10 @@ async function validateDeployPoolThresholds(args) {
   const minFeeActiveTvlRatio = numberOrNull(config.screening.minFeeActiveTvlRatio);
 
   // Quote asset check: verify pool uses an allowed quote asset
-  const SOL_MINT = "So11111111111111111111111111111111111111112";
-  const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-  const USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
-  const KNOWN_QUOTE_MINTS = new Set([SOL_MINT, USDC_MINT, USDT_MINT]);
+          const SOL_MINT = "So11111111111111111111111111111111111111112";
+          const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+          const USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+          const KNOWN_QUOTE_MINTS = new Set([SOL_MINT, USDC_MINT, USDT_MINT]);
   const allowedQuotes = config.screening.allowedQuoteAssets ?? ["SOL"];
   const txAddr = detail?.token_x?.address || "";
   const tyAddr = detail?.token_y?.address || "";
@@ -1168,8 +1168,12 @@ async function runSafetyChecks(name, args) {
           };
         }
         // Check quote asset balance when it's not SOL
+        let detail;
+        try { detail = await fetchFreshPoolDetail(args.pool_address); } catch { detail = null; }
         if (detail) {
           const SOL_MINT = "So11111111111111111111111111111111111111112";
+          const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+          const USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
           const txAddr = detail?.token_x?.address || "";
           const tyAddr = detail?.token_y?.address || "";
           const KNOWN_QUOTE_MINTS = new Set([SOL_MINT, USDC_MINT, USDT_MINT]);
