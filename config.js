@@ -322,6 +322,7 @@ export const config = {
     autoSwapAfterClaim:    u.autoSwapAfterClaim    ?? false,
     autoSwapForDeploy:     u.autoSwapForDeploy     ?? false,
     minSwapBackUsd:        u.minSwapBackUsd        ?? 0.05, // skip token→SOL swap if usd below this
+    minSwapBackSol:        u.minSwapBackSol        ?? 0.001, // skip swap if route output below this (gas waste)
     outOfRangeBinsToClose: u.outOfRangeBinsToClose ?? 10,
     outOfRangeWaitMinutes: u.outOfRangeWaitMinutes ?? 30,
     oorCooldownTriggerCount: u.oorCooldownTriggerCount ?? 3,

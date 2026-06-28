@@ -299,6 +299,90 @@ async function validateDeployPoolThresholds(args) {
   return { pass: true, entryMarketData };
 }
 
+const JUPITER_QUOTE_API = "https://api.jup.ag/swap/v2/quote";
+const SOL_MINT = "So11111111111111111111111111111111111111112";
+
+/**
+ * Lightweight check whether a swap route exists and the expected SOL output is worthwhile.
+ * Returns { viable, outAmount, reason }.
+ */
+async function checkSwapRoute(inputMint, rawAmount, minSwapBackSol) {
+  try {
+    const { Connection, PublicKey } = await import("@solana/web3.js");
+    const connection = new Connection(process.env.RPC_URL, "confirmed");
+    let decimals = 9;
+    if (inputMint !== SOL_MINT) {
+      const mintInfo = await connection.getParsedAccountInfo(new PublicKey(inputMint));
+      decimals = mintInfo.value?.data?.parsed?.info?.decimals ?? 9;
+    }
+    const amountStr = Math.floor(rawAmount * Math.pow(10, decimals)).toString();
+    const params = new URLSearchParams({ inputMint, outputMint: SOL_MINT, amount: amountStr, slippageBps: "100" });
+    const res = await fetch(`${JUPITER_QUOTE_API}?${params}`, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return { viable: false, reason: `quote API ${res.status}` };
+    const data = await res.json();
+    const outAmountLamports = Number(data?.outAmount ?? 0);
+    if (outAmountLamports <= 0) return { viable: false, reason: "zero out amount" };
+    const outSol = outAmountLamports / 1e9;
+    if (outSol < minSwapBackSol) return { viable: false, reason: `output ${outSol.toFixed(4)} SOL below min ${minSwapBackSol}` };
+    return { viable: true, outAmount: outSol };
+  } catch (e) {
+    return { viable: false, reason: e.message };
+  }
+}
+
+/**
+ * Scan all non-SOL/USDC/USDT wallet tokens and swap any with a viable route back to SOL.
+ * Can be called after close (auto) or manually via sweep_stuck_tokens tool.
+ */
+async function sweepStuckTokens() {
+  const minSwapBackSol = config.management.minSwapBackSol ?? 0.001;
+  const minSwapUsd = config.management.minSwapBackUsd ?? 0.05;
+  let swapped = 0, skipped = 0, kept = 0, errors = 0;
+  try {
+    const balances = await getWalletBalances({});
+    for (const token of (balances.tokens || [])) {
+      const mint = token.mint;
+      const usd = token.usd;
+      if (mint === SOL_MINT) continue;
+      if (mint === config.tokens.USDC || mint === config.tokens.USDT) {
+        log("executor", `[swap-back] keeping ${token.symbol || mint.slice(0, 8)} $${usd ?? "?"} for future quote-pair deploy`);
+        kept++;
+        continue;
+      }
+      // Known USD below threshold → skip as dust
+      if (usd != null && usd < minSwapUsd && usd > 0) {
+        log("executor", `[swap-back] skipping dust ${token.symbol || mint.slice(0, 8)} $${usd} (below min $${minSwapUsd})`);
+        skipped++;
+        continue;
+      }
+      // Check route viability
+      const route = await checkSwapRoute(mint, token.balance, minSwapBackSol);
+      if (!route.viable) {
+        log("executor", `[swap-back] no viable route for ${token.symbol || mint.slice(0, 8)}${usd != null ? ` $${usd}` : ""} — ${route.reason}, leaving in wallet`);
+        skipped++;
+        continue;
+      }
+      log("executor", `[swap-back] swapping ${token.symbol || mint.slice(0, 8)}${usd != null ? ` $${usd}` : ""} (→ ~${route.outAmount.toFixed(4)} SOL) → SOL`);
+      const swapResult = await swapToken({ input_mint: mint, output_mint: "SOL", amount: token.balance }).catch(e => {
+        log("executor_warn", `[swap-back] swap failed for ${token.symbol || mint.slice(0, 8)}: ${e.message}`);
+        return null;
+      });
+      if (swapResult?.amount_out) {
+        log("executor", `[swap-back] ${token.symbol || mint.slice(0, 8)} → SOL complete: ${swapResult.amount_out} SOL received`);
+        swapped++;
+      } else if (swapResult?.dry_run) {
+        swapped++;
+      } else {
+        errors++;
+      }
+    }
+  } catch (e) {
+    log("executor_warn", `[swap-back] sweep failed: ${e.message}`);
+    return { swapped, skipped, kept, errors, error: e.message };
+  }
+  return { swapped, skipped, kept, errors };
+}
+
 // Registered by index.js so update_config can restart cron jobs when intervals change
 let _cronRestarter = null;
 export function registerCronRestarter(fn) { _cronRestarter = fn; }
@@ -332,6 +416,7 @@ const toolMap = {
   close_position: closePosition,
   get_wallet_balance: getWalletBalances,
   swap_token: swapToken,
+  sweep_stuck_tokens: sweepStuckTokens,
   get_top_lpers: studyTopLPers,
   study_top_lpers: studyTopLPers,
   set_position_note: ({ position_address, instruction }) => {
@@ -444,6 +529,8 @@ const toolMap = {
       // management
       minClaimAmount: ["management", "minClaimAmount"],
       autoSwapAfterClaim: ["management", "autoSwapAfterClaim"],
+      minSwapBackUsd: ["management", "minSwapBackUsd"],
+      minSwapBackSol: ["management", "minSwapBackSol"],
       outOfRangeBinsToClose: ["management", "outOfRangeBinsToClose"],
       outOfRangeWaitMinutes: ["management", "outOfRangeWaitMinutes"],
       oorCooldownTriggerCount: ["management", "oorCooldownTriggerCount"],
@@ -715,6 +802,7 @@ const WRITE_TOOLS = new Set([
   "claim_fees",
   "close_position",
   "swap_token",
+  "sweep_stuck_tokens",
 ]);
 const PROTECTED_TOOLS = new Set([
   ...WRITE_TOOLS,
@@ -959,39 +1047,15 @@ export async function executeTool(name, args) {
         }
         // Auto-swap all non-SOL tokens back to SOL (except USDC/USDT kept for quote-pair reuse)
         if (!args.skip_swap) {
-          try {
-            const balances = await getWalletBalances({});
-            const minSwapUsd = config.management.minSwapBackUsd ?? 0.05;
-            for (const token of (balances.tokens || [])) {
-              const mint = token.mint;
-              const usd = token.usd ?? 0;
-              // Keep USDC/USDT for future quote-pair deploys
-              if (mint === config.tokens.USDC || mint === config.tokens.USDT) {
-                log("executor", `[swap-back] keeping ${token.symbol || mint.slice(0, 8)} $${usd} for future quote-pair deploy`);
-                continue;
-              }
-              // Skip SOL itself
-              if (mint === config.tokens.SOL) continue;
-              // Skip dust below threshold
-              if (usd < minSwapUsd) {
-                log("executor", `[swap-back] skipping dust ${token.symbol || mint.slice(0, 8)} $${usd} (below min $${minSwapUsd})`);
-                continue;
-              }
-              log("executor", `[swap-back] swapping ${token.symbol || mint.slice(0, 8)} $${usd} → SOL`);
-              const swapResult = await swapToken({ input_mint: mint, output_mint: "SOL", amount: token.balance }).catch(e => {
-                log("executor_warn", `[swap-back] swap failed for ${token.symbol || mint.slice(0, 8)}: ${e.message}`);
-                return null;
-              });
-              if (swapResult?.amount_out) {
-                log("executor", `[swap-back] ${token.symbol || mint.slice(0, 8)} → SOL complete: ${swapResult.amount_out} SOL received`);
-              }
-            }
-            // Tell the model not to call swap_token again
-            result.auto_swapped = true;
-            result.auto_swap_note = "All non-SOL tokens (excl. USDC/USDT) auto-swapped back to SOL after close. Do NOT call swap_token again.";
-          } catch (e) {
-            log("executor_warn", `[swap-back] scan/swap after close failed: ${e.message}`);
+          const sweepResult = await sweepStuckTokens().catch(e => {
+            log("executor_warn", `[swap-back] sweep after close failed: ${e.message}`);
+            return { swapped: 0, skipped: 0, kept: 0, errors: 1, error: e.message };
+          });
+          if (sweepResult.swapped > 0 || sweepResult.skipped > 0 || sweepResult.kept > 0) {
+            log("executor", `[swap-back] post-close sweep: ${sweepResult.swapped} swapped, ${sweepResult.skipped} skipped, ${sweepResult.kept} kept, ${sweepResult.errors} errors`);
           }
+          result.auto_swapped = true;
+          result.auto_swap_note = `All non-SOL tokens (excl. USDC/USDT) auto-swapped back to SOL after close. Sweep: ${sweepResult.swapped} swapped, ${sweepResult.skipped} skipped. Do NOT call swap_token again.`;
         }
       } else if (name === "claim_fees" && config.management.autoSwapAfterClaim && result.base_mint) {
         try {
