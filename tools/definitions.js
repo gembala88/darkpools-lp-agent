@@ -137,13 +137,13 @@ HARD RULES:
 - Never use 'curve'.
 - Bin Step: Only deploy in pools with bin_step between 80 and 125.
 - Range: Never deploy a tiny range. Total bins must be at least the configured minimum, with a hard floor of 35 bins.
-- For single-side SOL deploys (amount_y only, amount_x=0), do not request upside exposure:
+- For single-side deploys (amount_y only, amount_x=0), do not request upside exposure:
   use bins_below only, keep bins_above=0, and the upper bin will be pinned to the current active bin.
 
 Guidelines (only when user hasn't specified):
 - Strategy: omit the strategy field — the system will use the configured default from config.strategy.strategy
 - Bins: choose from configured minBinsBelow/maxBinsBelow by positive volatility. The hard lower floor is 35 bins.
-- Deposit: single-sided SOL only: set amount_y/amount_sol, keep amount_x=0.
+- Deposit: single-sided only: set amount_y/amount_sol, keep amount_x=0. Quote asset (SOL/USDC/USDT) is determined by pool.
 
 WARNING: This executes a real on-chain transaction. Check DRY_RUN mode.`,
       parameters: {
@@ -155,11 +155,11 @@ WARNING: This executes a real on-chain transaction. Check DRY_RUN mode.`,
           },
           amount_y: {
             type: "number",
-            description: "Amount of quote token (usually SOL) to deposit."
+            description: "Amount of quote token (SOL/USDC/USDT depending on pool) to deposit."
           },
           amount_x: {
             type: "number",
-            description: "Unsupported for this agent. Keep 0; deploys must be single-side SOL via amount_y/amount_sol."
+            description: "Unsupported for this agent. Keep 0; single-side deploys use amount_y only."
           },
           amount_sol: {
             type: "number",

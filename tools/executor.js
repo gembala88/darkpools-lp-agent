@@ -976,13 +976,13 @@ async function runSafetyChecks(name, args) {
       if (Number.isFinite(deployAmountX) && deployAmountX > 0) {
         return {
           pass: false,
-          reason: "This agent only supports single-side SOL deploys. Use amount_y/amount_sol and keep amount_x=0.",
+          reason: "This agent only supports single-side deploys. Use amount_y/amount_sol and keep amount_x=0.",
         };
       }
       const requestedBinsBelow = Number(args.bins_below ?? config.strategy.defaultBinsBelow ?? config.strategy.minBinsBelow);
       const requestedBinsAbove = Number(args.bins_above ?? 0);
       const minBinsBelow = Math.max(MIN_SAFE_BINS_BELOW, Number(config.strategy.minBinsBelow ?? MIN_SAFE_BINS_BELOW));
-      const isSingleSidedSol = deployAmountY > 0 && deployAmountX <= 0;
+      const isSingleSided = deployAmountY > 0 && deployAmountX <= 0;
       const requestedTotalBins = requestedBinsBelow + requestedBinsAbove;
       const requestedVolatility = args.volatility == null ? null : Number(args.volatility);
       if (args.volatility != null && (!Number.isFinite(requestedVolatility) || requestedVolatility <= 0)) {
@@ -1010,7 +1010,7 @@ async function runSafetyChecks(name, args) {
         };
       }
       if (
-        isSingleSidedSol &&
+        isSingleSided &&
         args.downside_pct == null &&
         (!Number.isFinite(requestedBinsBelow) || !Number.isInteger(requestedBinsBelow) || requestedBinsBelow < minBinsBelow)
       ) {
@@ -1020,13 +1020,13 @@ async function runSafetyChecks(name, args) {
         };
       }
       if (
-        isSingleSidedSol &&
+        isSingleSided &&
         args.upside_pct == null &&
         (!Number.isFinite(requestedBinsAbove) || !Number.isInteger(requestedBinsAbove) || requestedBinsAbove !== 0)
       ) {
         return {
           pass: false,
-          reason: "Single-side SOL deploy must use bins_above=0.",
+          reason: "Single-side deploy must use bins_above=0.",
         };
       }
 
@@ -1066,7 +1066,7 @@ async function runSafetyChecks(name, args) {
       if (amountY <= 0) {
         return {
           pass: false,
-          reason: `Must provide a positive SOL amount (amount_y).`,
+          reason: `Must provide a positive deposit amount (amount_y).`,
         };
       }
 
@@ -1074,13 +1074,13 @@ async function runSafetyChecks(name, args) {
       if (amountY < minDeploy) {
         return {
           pass: false,
-          reason: `Amount ${amountY} SOL is below the minimum deploy amount (${minDeploy} SOL). Use at least ${minDeploy} SOL.`,
+          reason: `Amount ${amountY} is below the minimum deploy amount (${minDeploy}). Use at least ${minDeploy}.`,
         };
       }
       if (amountY > config.risk.maxDeployAmount) {
         return {
           pass: false,
-          reason: `SOL amount ${amountY} exceeds maximum allowed per position (${config.risk.maxDeployAmount}).`,
+          reason: `Deposit amount ${amountY} exceeds maximum allowed per position (${config.risk.maxDeployAmount}).`,
         };
       }
 
@@ -1120,16 +1120,39 @@ async function runSafetyChecks(name, args) {
         };
       }
 
-      // Check SOL balance
+      // Check balances (SOL for gas, quote asset for deposit)
       if (process.env.DRY_RUN !== "true") {
         const balance = await getWalletBalances();
         const gasReserve = config.management.gasReserve;
-        const minRequired = amountY + gasReserve;
-        if (balance.sol < minRequired) {
+        const minSolRequired = amountY + gasReserve;
+        if (balance.sol < minSolRequired) {
           return {
             pass: false,
-            reason: `Insufficient SOL: have ${balance.sol} SOL, need ${minRequired} SOL (${amountY} deploy + ${gasReserve} gas reserve).`,
+            reason: `Insufficient SOL: have ${balance.sol} SOL, need ${minSolRequired} SOL (${amountY} deploy + ${gasReserve} gas reserve).`,
           };
+        }
+        // Check quote asset balance when it's not SOL
+        if (detail) {
+          const SOL_MINT = "So11111111111111111111111111111111111111112";
+          const txAddr = detail?.token_x?.address || "";
+          const tyAddr = detail?.token_y?.address || "";
+          const KNOWN_QUOTE_MINTS = new Set([SOL_MINT, USDC_MINT, USDT_MINT]);
+          const isXQuote = KNOWN_QUOTE_MINTS.has(txAddr);
+          const isYQuote = KNOWN_QUOTE_MINTS.has(tyAddr);
+          if (isXQuote || isYQuote) {
+            const quoteAddr = isXQuote ? txAddr : tyAddr;
+            if (quoteAddr !== SOL_MINT) {
+              const quoteSymbol = quoteAddr === USDC_MINT ? "USDC" : "USDT";
+              const tokenBalance = balance.tokens?.find(t => t.mint === quoteAddr);
+              const tokenAmount = tokenBalance?.balance ?? 0;
+              if (tokenAmount < amountY) {
+                return {
+                  pass: false,
+                  reason: `Insufficient ${quoteSymbol}: have ${tokenAmount} ${quoteSymbol}, need ${amountY} ${quoteSymbol} for deploy.`,
+                };
+              }
+            }
+          }
         }
       }
 

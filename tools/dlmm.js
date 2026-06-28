@@ -746,25 +746,21 @@ export async function deployPosition({
     throw new Error("Invalid deploy amount: amount_x and amount_y must be valid non-negative numbers.");
   }
   if (finalAmountX > 0) {
-    throw new Error("Unsupported deploy amount: this agent only supports single-side SOL deploys. Use amount_y/amount_sol and keep amount_x=0.");
+    throw new Error("Unsupported deploy amount: this agent only supports single-side deploys. Use amount_y/amount_sol and keep amount_x=0.");
   }
   if (finalAmountY <= 0) {
     throw new Error("Invalid deploy amount: provide a positive amount_y/amount_sol.");
   }
-  const isSingleSidedSol = finalAmountX <= 0 && finalAmountY > 0;
-  if (isSingleSidedSol) {
+  const isSingleSided = finalAmountX <= 0 && finalAmountY > 0;
+  const isSingleSidedSol = isSingleSided && (() => {
     const yMint = pool.lbPair.tokenYMint.toString();
     const xMint = pool.lbPair.tokenXMint.toString();
     const SOL_MINT = "So11111111111111111111111111111111111111112";
-    if (yMint !== SOL_MINT && xMint !== SOL_MINT) {
-      throw new Error(
-        `Cannot deploy one-sided SOL to non-SOL pair (X: ${xMint}, Y: ${yMint}). Only SOL pairs are supported.`
-      );
-    }
-  }
-  if (isSingleSidedSol && (Number(bins_above ?? 0) > 0 || Number(upside_pct ?? 0) > 0)) {
+    return yMint === SOL_MINT || xMint === SOL_MINT;
+  })();
+  if (isSingleSided && (Number(bins_above ?? 0) > 0 || Number(upside_pct ?? 0) > 0)) {
     throw new Error(
-      "Single-side SOL deploy cannot use bins_above or upside_pct. Use amount_y with bins_below only; the upper bin is the SDK active bin.",
+      "Single-side deploy cannot use bins_above or upside_pct. Use amount_y with bins_below only; the upper bin is the SDK active bin.",
     );
   }
   if (isSingleSidedSol) {
@@ -824,14 +820,14 @@ export async function deployPosition({
 
   const isWideRange = totalBins > 69;
   const minBinId = activeBin.binId - activeBinsBelow;
-  const maxBinId = isSingleSidedSol ? activeBin.binId : activeBin.binId + activeBinsAbove;
+  const maxBinId = isSingleSided ? activeBin.binId : activeBin.binId + activeBinsAbove;
 
   if (minBinId > maxBinId) {
     throw new Error(`Invalid bin range: ${minBinId} -> ${maxBinId}`);
   }
-  if (isSingleSidedSol && maxBinId !== activeBin.binId) {
+  if (isSingleSided && maxBinId !== activeBin.binId) {
     throw new Error(
-      `Single-side SOL deploy must end at the SDK active bin. Expected ${activeBin.binId}, got ${maxBinId}.`,
+      `Single-side deploy must end at the SDK active bin. Expected ${activeBin.binId}, got ${maxBinId}.`,
     );
   }
 
@@ -855,13 +851,17 @@ export async function deployPosition({
     totalXLamports = new BN(Math.floor(finalAmountX * Math.pow(10, decimals)));
   }
 
-  // Determine which side has wSOL for one-sided deposits
+  // Determine which side has the quote asset (SOL/USDC/USDT) for one-sided deposits,
+  // and place the deposit on the correct side
   const yMint = pool.lbPair.tokenYMint.toString();
   const xMint = pool.lbPair.tokenXMint.toString();
   const SOL_MINT = "So11111111111111111111111111111111111111112";
-  const solIsX = xMint === SOL_MINT;
-  const solIsY = yMint === SOL_MINT;
-  if (isSingleSidedSol && solIsX && totalYLamports.gtn(0)) {
+  const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+  const USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+  const KNOWN_QUOTE_MINTS = new Set([SOL_MINT, USDC_MINT, USDT_MINT]);
+  const quoteIsX = KNOWN_QUOTE_MINTS.has(xMint);
+  const quoteIsY = KNOWN_QUOTE_MINTS.has(yMint);
+  if (isSingleSided && quoteIsX && totalYLamports.gtn(0)) {
     totalXLamports = totalYLamports;
     totalYLamports = new BN(0);
   }
@@ -872,11 +872,13 @@ export async function deployPosition({
     const walletLocal = getWallet();
     const balance = await getConnection().getBalance(walletLocal.publicKey);
     preBalanceSol = balance / 1e9;
-    const needed = finalAmountY + (config.management.gasReserve ?? 0.2);
-    if (preBalanceSol < needed) {
-      throw new Error(`Insufficient SOL balance: ${preBalanceSol.toFixed(4)} SOL available, need ${needed.toFixed(2)} SOL for deploy (${finalAmountY} + ${config.management.gasReserve ?? 0.2} reserve)`);
+    const neededSol = isSingleSided && !quoteIsY && !quoteIsX
+      ? finalAmountY + (config.management.gasReserve ?? 0.2)
+      : (config.management.gasReserve ?? 0.2);
+    if (preBalanceSol < neededSol) {
+      throw new Error(`Insufficient SOL balance: ${preBalanceSol.toFixed(4)} SOL available, need ${neededSol.toFixed(2)} SOL (gas reserve).`);
     }
-    log("deploy", `Balance check passed: ${preBalanceSol.toFixed(4)} SOL ≥ ${needed.toFixed(2)} SOL needed`);
+    log("deploy", `Balance check passed: ${preBalanceSol.toFixed(4)} SOL ≥ ${neededSol.toFixed(2)} SOL needed`);
   }
 
   if (shouldUseLpAgentRelayForDeploy()) {
