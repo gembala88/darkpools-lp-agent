@@ -179,6 +179,7 @@ async function validateDeployPoolThresholds(args) {
   const tvl = poolDetailTvl(detail);
   const minTvl = numberOrNull(config.screening.minTvl);
   const maxTvl = numberOrNull(config.screening.maxTvl);
+  const isDryRun = process.env.DRY_RUN === "true";
 
   if (tvl == null) {
     return {
