@@ -124,6 +124,7 @@ let _resolvedLane = "balanced";
 const _peakConfirmTimers = new Map();
 const _trailingDropConfirmTimers = new Map();
 const _lastSeenFees = new Map(); // position → last unclaimed_fees_usd (for smart maxHold)
+const _peakPnl = new Map(); // position → peak pnl_pct seen past maxHold (for PnL-aware hold)
 const MAX_HOLD_HARD_CAP_MULTIPLIER = 4;
 const TRAILING_PEAK_CONFIRM_DELAY_MS = 15_000;
 const TRAILING_PEAK_CONFIRM_TOLERANCE = 0.85;
@@ -339,6 +340,7 @@ export async function runManagementCycle({ silent = false } = {}) {
             exitMap.set(p.position, reason);
             log("state", `Exit alert for ${p.pair}: ${reason}`);
             _lastSeenFees.delete(p.position);
+            _peakPnl.delete(p.position);
             continue;
           }
           if (p.in_range === false) {
@@ -346,19 +348,42 @@ export async function runManagementCycle({ silent = false } = {}) {
             exitMap.set(p.position, reason);
             log("state", `Exit alert for ${p.pair}: ${reason}`);
             _lastSeenFees.delete(p.position);
+            _peakPnl.delete(p.position);
             continue;
           }
           const currentFees = p.unclaimed_fees_usd ?? 0;
           const lastFees = _lastSeenFees.get(p.position);
+          const pnlDropPct = config.management.maxHoldPnlDropPct ?? 3;
+          const currentPnl = p.pnl_pct;
+          const lastPeakPnl = _peakPnl.get(p.position);
+
+          // Track peak PnL past maxHold
+          if (currentPnl != null) {
+            const peak = lastPeakPnl != null ? Math.max(lastPeakPnl, currentPnl) : currentPnl;
+            _peakPnl.set(p.position, peak);
+
+            // Exit if PnL dropped more than threshold from peak
+            if (lastPeakPnl != null && currentPnl < lastPeakPnl - pnlDropPct) {
+              const reason = `Max hold time reached (${ageHours.toFixed(1)}h ≥ ${maxHold}h) — PnL dropped ${(lastPeakPnl - currentPnl).toFixed(1)}% from peak ${lastPeakPnl.toFixed(1)}% (threshold ${pnlDropPct}%)`;
+              exitMap.set(p.position, reason);
+              log("state", `Exit alert for ${p.pair}: ${reason}`);
+              _lastSeenFees.delete(p.position);
+              _peakPnl.delete(p.position);
+              continue;
+            }
+          }
+
+          // Fee-growth check (only if PnL didn't trigger exit)
           if (lastFees != null && currentFees <= lastFees) {
             const reason = `Max hold time reached (${ageHours.toFixed(1)}h ≥ ${maxHold}h) — fees stalled ($${lastFees} → $${currentFees})`;
             exitMap.set(p.position, reason);
             log("state", `Exit alert for ${p.pair}: ${reason}`);
             _lastSeenFees.delete(p.position);
+            _peakPnl.delete(p.position);
             continue;
           }
           _lastSeenFees.set(p.position, currentFees);
-          log("state", `Holding past maxHold for ${p.pair}: still productive (in-range, fees $${currentFees})`);
+          log("state", `Holding past maxHold for ${p.pair}: still productive (in-range, fees $${currentFees}, PnL ${currentPnl != null ? `${currentPnl.toFixed(1)}%` : "?"})`);
         }
       }
       if (!exit && !isDryRun && p.pnl_pct != null && config.management.quickTakeProfitPct > 0) {

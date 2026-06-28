@@ -335,6 +335,7 @@ export const config = {
     positionSizePct:       u.positionSizePct       ?? 0.35,
     dryRunSlippagePct:     u.dryRunSlippagePct     ?? 6,
     maxHoldHours:          u.maxHoldHours          ?? 6,
+    maxHoldPnlDropPct:     u.maxHoldPnlDropPct     ?? 3,
     quickTakeProfitPct:    u.quickTakeProfitPct    ?? 3,
     liveSlippageBps:       u.liveSlippageBps       ?? 300,
     liveMaxSolLoss:        u.liveMaxSolLoss        ?? 0.05,
