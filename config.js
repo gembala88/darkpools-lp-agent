@@ -323,6 +323,7 @@ export const config = {
     autoSwapForDeploy:     u.autoSwapForDeploy     ?? false,
     minSwapBackUsd:        u.minSwapBackUsd        ?? 0.05, // skip token→SOL swap if usd below this
     minSwapBackSol:        u.minSwapBackSol        ?? 0.001, // skip swap if route output below this (gas waste)
+    autoSweepMinUsd:       u.autoSweepMinUsd       ?? 0.10, // periodic sweeper threshold — only sweep tokens above this USD value
     outOfRangeBinsToClose: u.outOfRangeBinsToClose ?? 10,
     outOfRangeWaitMinutes: u.outOfRangeWaitMinutes ?? 30,
     oorCooldownTriggerCount: u.oorCooldownTriggerCount ?? 3,

@@ -15,7 +15,7 @@ import { formatGmgnCandidateForPrompt } from "./tools/gmgn.js";
 import { config, reloadScreeningThresholds, computeDeployAmount, lanesConfig, activeLaneSetting, updateActiveLaneSetting, screeningContext, autoSelectProfile, applyProfileToConfig, getActiveProfileName, SCREENING_PROFILES, setActiveProfile, activeProfile, getProfileDisplayLabel, isProfileActive } from "./config.js";
 import { engines } from "./dist/engines/index.js";
 import { evolveThresholds, getPerformanceSummary } from "./lessons.js";
-import { executeTool, registerCronRestarter } from "./tools/executor.js";
+import { executeTool, registerCronRestarter, sweepStuckTokens } from "./tools/executor.js";
 import {
   startPolling,
   stopPolling,
@@ -1317,11 +1317,13 @@ Summarize the current portfolio health, total fees earned, and performance of al
 
   // Lightweight 30s PnL poller — updates trailing TP state between management cycles, no LLM
   let _pnlPollBusy = false;
+  let _pnlSweepTick = 0;
+  let _sweepRunning = false;
   const pnlPollInterval = setInterval(async () => {
     if (_managementBusy || _screeningBusy || _pnlPollBusy) return;
-    if (getTrackedPositions(true).length === 0) return;
     _pnlPollBusy = true;
     try {
+      if (getTrackedPositions(true).length === 0) return;
       const result = await getMyPositions({ force: true, silent: true }).catch(() => null);
       if (!result?.positions?.length) return;
       for (const p of result.positions) {
@@ -1367,6 +1369,18 @@ Summarize the current portfolio health, total fees earned, and performance of al
       }
     } finally {
       _pnlPollBusy = false;
+    }
+    // Periodic stuck-token sweeper — runs every 4th tick (~2 min), independent of positions
+    _pnlSweepTick++;
+    if (_pnlSweepTick % 4 === 0 && !_sweepRunning) {
+      _sweepRunning = true;
+      sweepStuckTokens({ minSwapUsdOverride: config.management.autoSweepMinUsd }).then(r => {
+        if (r.swapped > 0 || r.skipped > 0 || r.errors > 0) {
+          log("cron", `[auto-sweep] ${r.swapped} swapped, ${r.skipped} skipped, ${r.kept} kept, ${r.errors} errors`);
+        }
+      }).catch(e => {
+        log("cron_error", `[auto-sweep] failed: ${e.message}`);
+      }).finally(() => { _sweepRunning = false; });
     }
   }, 30_000);
 

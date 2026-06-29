@@ -372,9 +372,18 @@ async function checkSwapRoute(inputMint, rawAmount, minSwapBackSol) {
  * Scan all non-SOL/USDC/USDT wallet tokens and swap any with a viable route back to SOL.
  * Can be called after close (auto) or manually via sweep_stuck_tokens tool.
  */
-async function sweepStuckTokens() {
+/**
+ * Scan all non-SOL/USDC/USDT wallet tokens and swap any with a viable route back to SOL.
+ * Can be called after close (auto), manually via sweep_stuck_tokens tool, or by the periodic sweeper.
+ * @param {object} [opts] - Options
+ * @param {number} [opts.minSwapUsdOverride] - Override the minimum USD threshold; uses max(minSwapBackUsd, override)
+ * @param {number} [opts.perTokenTimeoutMs=15000] - Timeout per token for route-check + swap
+ */
+export async function sweepStuckTokens(opts = {}) {
+  const PER_TOKEN_TIMEOUT = opts.perTokenTimeoutMs ?? 15000;
   const minSwapBackSol = config.management.minSwapBackSol ?? 0.001;
-  const minSwapUsd = config.management.minSwapBackUsd ?? 0.05;
+  const baseMinUsd = config.management.minSwapBackUsd ?? 0.05;
+  const minSwapUsd = opts.minSwapUsdOverride != null ? Math.max(baseMinUsd, opts.minSwapUsdOverride) : baseMinUsd;
   let swapped = 0, skipped = 0, kept = 0, errors = 0;
   try {
     const balances = await getWalletBalances({});
@@ -393,25 +402,37 @@ async function sweepStuckTokens() {
         skipped++;
         continue;
       }
-      // Check route viability
-      const route = await checkSwapRoute(mint, token.balance, minSwapBackSol);
-      if (!route.viable) {
-        log("executor", `[swap-back] no viable route for ${token.symbol || mint.slice(0, 8)}${usd != null ? ` $${usd}` : ""} — ${route.reason}, leaving in wallet`);
+      // Per-token timeout guard: wrap route-check + swap in a timeout so one unresponsive token
+      // (e.g. no route, stale RPC) doesn't hang the entire sweep
+      const result = await Promise.race([
+        (async () => {
+          // Check route viability
+          const route = await checkSwapRoute(mint, token.balance, minSwapBackSol);
+          if (!route.viable) {
+            log("executor", `[swap-back] no viable route for ${token.symbol || mint.slice(0, 8)}${usd != null ? ` $${usd}` : ""} — ${route.reason}, leaving in wallet`);
+            skipped++;
+            return;
+          }
+          log("executor", `[swap-back] swapping ${token.symbol || mint.slice(0, 8)}${usd != null ? ` $${usd}` : ""} (→ ~${route.outAmount.toFixed(4)} SOL) → SOL`);
+          const swapResult = await swapToken({ input_mint: mint, output_mint: "SOL", amount: token.balance }).catch(e => {
+            log("executor_warn", `[swap-back] swap failed for ${token.symbol || mint.slice(0, 8)}: ${e.message}`);
+            return null;
+          });
+          if (swapResult?.amount_out) {
+            log("executor", `[swap-back] ${token.symbol || mint.slice(0, 8)} → SOL complete: ${swapResult.amount_out} SOL received`);
+            swapped++;
+          } else if (swapResult?.dry_run) {
+            swapped++;
+          } else {
+            errors++;
+          }
+        })(),
+        new Promise(resolve => setTimeout(resolve, PER_TOKEN_TIMEOUT)),
+      ]);
+      // If timeout won the race, result is undefined — log and move on
+      if (result === undefined) {
+        log("executor_warn", `[swap-back] timed out (${PER_TOKEN_TIMEOUT}ms) for ${token.symbol || mint.slice(0, 8)} — skipping token`);
         skipped++;
-        continue;
-      }
-      log("executor", `[swap-back] swapping ${token.symbol || mint.slice(0, 8)}${usd != null ? ` $${usd}` : ""} (→ ~${route.outAmount.toFixed(4)} SOL) → SOL`);
-      const swapResult = await swapToken({ input_mint: mint, output_mint: "SOL", amount: token.balance }).catch(e => {
-        log("executor_warn", `[swap-back] swap failed for ${token.symbol || mint.slice(0, 8)}: ${e.message}`);
-        return null;
-      });
-      if (swapResult?.amount_out) {
-        log("executor", `[swap-back] ${token.symbol || mint.slice(0, 8)} → SOL complete: ${swapResult.amount_out} SOL received`);
-        swapped++;
-      } else if (swapResult?.dry_run) {
-        swapped++;
-      } else {
-        errors++;
       }
     }
   } catch (e) {
