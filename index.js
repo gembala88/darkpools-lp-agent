@@ -952,6 +952,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
         cachedActiveBin: null,
         isDryRun,
         top10Pct: pool._enrichment?.topHoldersPct ?? ti?.audit?.top_holders_pct ?? null,
+        maxTop10Pct: config.screening.maxTop10Pct,
       }).catch(() => null)
     ));
     const aiMap = {};

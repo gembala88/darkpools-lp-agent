@@ -130,6 +130,8 @@ export class LPIntelligenceService {
       cachedActiveBin?: number;
       isDryRun?: boolean;
       top10Pct?: number | null;
+      /** User-configurable concentration threshold from config.screening.maxTop10Pct */
+      maxTop10Pct?: number;
     }
   ): Promise<MasterLPOutput> {
     this.logger.info(`Evaluating pool ${poolAddress} (${tokenMint})`);
@@ -319,6 +321,7 @@ export class LPIntelligenceService {
         bundlerRisk: bundlerRisk as any,
         concentrationRisk: effectiveConcentrationRisk,
         isDryRun: options?.isDryRun,
+        concentrationThreshold: options?.maxTop10Pct,
         txActivity1h,
         txActivity5m,
         sellPct1h,

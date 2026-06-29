@@ -21,6 +21,8 @@ export interface FilterCriteria {
   concentrationRisk?: number;
   /** When true, relax certain thresholds (e.g. concentration) for DRY RUN learning */
   isDryRun?: boolean;
+  /** Override concentration threshold from user-config (defaults to 80 live, 95 dry-run) */
+  concentrationThreshold?: number;
   /** Total buys+sells in last 60min (preferred stable window for LP activity) */
   txActivity1h?: number;
   /** Total buys+sells in last 5min (fallback) */
@@ -133,7 +135,8 @@ export class NoDeployFilterV2 {
       rejectReasons.push('bundler risk CRITICAL');
     }
 
-    const concentrationThreshold = criteria.isDryRun ? 95 : 80;
+    const baseThreshold = criteria.concentrationThreshold ?? 80;
+    const concentrationThreshold = criteria.isDryRun ? Math.min(baseThreshold + 5, 99) : baseThreshold;
     if (criteria.concentrationRisk != null && criteria.concentrationRisk > concentrationThreshold) {
       rejectReasons.push(`concentration risk ${criteria.concentrationRisk}% > ${concentrationThreshold}%${criteria.isDryRun ? ' (dry run relaxed)' : ''}`);
     }
