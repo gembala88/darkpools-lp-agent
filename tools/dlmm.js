@@ -1864,6 +1864,20 @@ export async function closePosition({ position_address, reason }) {
   const tracked = getTrackedPosition(position_address);
 
   try {
+    // Post-close swap-back helper — sweeps non-SOL/USDC/USDT tokens to SOL after any close
+    const doSwapBack = async () => {
+      if (process.env.DRY_RUN === "true") return;
+      try {
+        const { sweepStuckTokens } = await import("../tools/executor.js");
+        const r = await sweepStuckTokens();
+        if (r.swapped > 0 || r.skipped > 0 || r.kept > 0) {
+          log("close", `[swap-back] post-close sweep: ${r.swapped} swapped, ${r.skipped} skipped, ${r.kept} kept`);
+        }
+      } catch (e) {
+        log("close_warn", `[swap-back] post-close sweep failed: ${e.message}`);
+      }
+    };
+
     log("close", `Closing position: ${position_address}`);
     const wallet = getWallet();
     const poolAddress = await lookupPoolForPosition(position_address, wallet.publicKey.toString());
@@ -2073,6 +2087,7 @@ export async function closePosition({ position_address, reason }) {
             },
           });
 
+          await doSwapBack();
           return {
             success: true,
             relay: true,
@@ -2354,6 +2369,7 @@ export async function closePosition({ position_address, reason }) {
         },
       });
 
+      await doSwapBack();
       return {
         success: true,
         position: position_address,
@@ -2379,6 +2395,7 @@ export async function closePosition({ position_address, reason }) {
       metrics: {},
     });
 
+    await doSwapBack();
     return {
       success: true,
       position: position_address,
