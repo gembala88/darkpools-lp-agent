@@ -1144,7 +1144,19 @@ async function runSafetyChecks(name, args) {
         };
       }
 
-      const deployAmountY = Number(args.amount_y ?? args.amount_sol ?? 0);
+      // Default to configured deploy size when LLM omits amount — prevents "must provide positive amount_y" failure
+      const _defaultDeployAmount = (() => {
+        const base = config.management.liveDeployAmountSol ?? config.management.deployAmountSol ?? 0.15;
+        if (args.unverified === true) {
+          return Math.min(base, config.management.unverifiedDeployAmountSol ?? 0.05);
+        }
+        return base;
+      })();
+      if (args.amount_y == null && args.amount_sol == null) {
+        log("deploy", `[deploy-amount] LLM omitted amount, defaulting to ${_defaultDeployAmount} SOL (verified=${!args.unverified})`);
+        args.amount_y = _defaultDeployAmount;
+      }
+      const deployAmountY = Number(args.amount_y ?? args.amount_sol ?? _defaultDeployAmount);
       const deployAmountX = Number(args.amount_x ?? 0);
       if (Number.isFinite(deployAmountX) && deployAmountX > 0) {
         return {
@@ -1235,7 +1247,7 @@ async function runSafetyChecks(name, args) {
       }
 
       // Check amount limits
-      const amountY = args.amount_y ?? args.amount_sol ?? 0;
+      const amountY = args.amount_y ?? args.amount_sol ?? _defaultDeployAmount;
       if (amountY <= 0) {
         return {
           pass: false,
