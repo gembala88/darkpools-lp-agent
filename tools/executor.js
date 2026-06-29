@@ -912,26 +912,42 @@ export async function executeTool(name, args) {
   if (name === "deploy_position" && process.env.DRY_RUN !== "true" && config.management?.autoSwapForDeploy && args._quoteSwapNeeded) {
     try {
       const swap = args._quoteSwapNeeded;
-      const missingAmount = Math.max(0, swap.needed - swap.have);
-      const bufferAmount = missingAmount * 1.05; // 5% buffer for slippage
-      const solBuffer = config.management.gasReserve ?? 0.2;
-      const balance = await getWalletBalances();
-      const solAvailable = Math.max(0, balance.sol - solBuffer);
-      const solForSwap = Math.min(bufferAmount, solAvailable);
-      if (solForSwap <= 0.001) {
-        return { blocked: true, reason: `Insufficient SOL to swap for ${swap.symbol}: have ${balance.sol.toFixed(4)} SOL, need at least ${solBuffer.toFixed(2)} gas reserve.` };
+      const missingUsdc = Math.max(0, swap.needed - swap.have);
+      if (missingUsdc <= 0) {
+        delete args._quoteSwapNeeded;
+      } else {
+        // Fetch current SOL price to convert USDC→SOL
+        let solPrice = 0;
+        try {
+          const priceRes = await fetch("https://api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112", { signal: AbortSignal.timeout(5000) });
+          if (priceRes.ok) {
+            const priceData = await priceRes.json();
+            solPrice = priceData?.data?.So11111111111111111111111111111111111111112?.usdPrice ?? 0;
+          }
+        } catch {}
+        if (solPrice <= 0) {
+          return { blocked: true, reason: `Auto-swap SOL→${swap.symbol}: failed to fetch SOL price. Deploy cancelled.` };
+        }
+        const solNeeded = (missingUsdc / solPrice) * 1.05; // USDC≈$1, convert USD→SOL with 5% buffer
+        const solBuffer = config.management.gasReserve ?? 0.2;
+        const balance = await getWalletBalances();
+        const solAvailable = Math.max(0, balance.sol - solBuffer);
+        const solForSwap = Math.min(solNeeded, solAvailable);
+        if (solForSwap <= 0.001) {
+          return { blocked: true, reason: `Insufficient SOL to swap for ${swap.symbol}: have ${balance.sol.toFixed(4)} SOL, need at least ${solBuffer.toFixed(2)} gas reserve.` };
+        }
+        log("deploy", `[auto-swap-deploy] need ${missingUsdc.toFixed(2)} ${swap.symbol} ≈ ${solNeeded.toFixed(4)} SOL (SOL=$${solPrice.toFixed(2)}), swapping ${solForSwap.toFixed(4)} SOL for ${args.pool_name || args.pool_address?.slice(0, 8)} deploy (have ${swap.have} ${swap.symbol})`);
+        const swapResult = await swapToken({
+          input_mint: "So11111111111111111111111111111111111111112",
+          output_mint: swap.mint,
+          amount: solForSwap,
+        });
+        if (!swapResult || swapResult.error || swapResult.success === false) {
+          return { blocked: true, reason: `Auto-swap SOL→${swap.symbol} failed: ${swapResult?.error || "unknown error"}. Deploy cancelled.` };
+        }
+        log("deploy", `[auto-swap-deploy] swap succeeded: ${solForSwap.toFixed(4)} SOL → ${swap.symbol}`);
+        delete args._quoteSwapNeeded;
       }
-      log("deploy", `[auto-swap-deploy] swapping ${solForSwap.toFixed(4)} SOL → ${swap.symbol} for ${args.pool_name || args.pool_address?.slice(0, 8)} deploy (have ${swap.have} ${swap.symbol}, need ${swap.needed} ${swap.symbol})`);
-      const swapResult = await swapToken({
-        input_mint: "So11111111111111111111111111111111111111112",
-        output_mint: swap.mint,
-        amount: solForSwap,
-      });
-      if (!swapResult || swapResult.error || swapResult.success === false) {
-        return { blocked: true, reason: `Auto-swap SOL→${swap.symbol} failed: ${swapResult?.error || "unknown error"}. Deploy cancelled.` };
-      }
-      log("deploy", `[auto-swap-deploy] swap succeeded: ${solForSwap.toFixed(4)} SOL → ${swap.symbol}`);
-      delete args._quoteSwapNeeded;
     } catch (swapErr) {
       return { blocked: true, reason: `Auto-swap SOL→${args._quoteSwapNeeded?.symbol || "quote"} failed: ${swapErr.message}. Deploy cancelled.` };
     }
