@@ -1144,9 +1144,24 @@ async function runSafetyChecks(name, args) {
         };
       }
 
-      // Default to configured deploy size when LLM omits amount — prevents "must provide positive amount_y" failure
+      // Configured deploy amount (deployAmountSol / liveDeployAmountSol) takes priority over LLM's suggestion
+      const configuredAmount = config.management.liveDeployAmountSol ?? config.management.deployAmountSol;
+      const llmProvidedAmount = args.amount_y ?? args.amount_sol;
+      if (configuredAmount != null) {
+        let effectiveAmount = Number(configuredAmount);
+        if (args.unverified === true) {
+          effectiveAmount = Math.min(effectiveAmount, config.management.unverifiedDeployAmountSol ?? 0.05);
+        }
+        if (llmProvidedAmount != null && Number(llmProvidedAmount) !== effectiveAmount) {
+          log("deploy", `[deploy-amount] using configured ${effectiveAmount} SOL (LLM suggested ${llmProvidedAmount}, overridden by deployAmountSol)`);
+        } else {
+          log("deploy", `[deploy-amount] using configured ${effectiveAmount} SOL`);
+        }
+        args.amount_y = effectiveAmount;
+      }
+      // Last-resort fallback when no config and no LLM amount
       const _defaultDeployAmount = (() => {
-        const base = config.management.liveDeployAmountSol ?? config.management.deployAmountSol ?? 0.15;
+        const base = 0.15;
         if (args.unverified === true) {
           return Math.min(base, config.management.unverifiedDeployAmountSol ?? 0.05);
         }
