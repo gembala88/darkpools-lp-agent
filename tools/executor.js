@@ -1158,6 +1158,7 @@ async function runSafetyChecks(name, args) {
           log("deploy", `[deploy-amount] using configured ${effectiveAmount} SOL`);
         }
         args.amount_y = effectiveAmount;
+        args.amount_sol = effectiveAmount;
       }
       // Last-resort fallback when no config and no LLM amount
       const _defaultDeployAmount = (() => {
