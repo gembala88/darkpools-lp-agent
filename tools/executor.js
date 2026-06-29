@@ -322,11 +322,16 @@ async function validateDeployPoolThresholds(args) {
   }
 
   const baseMint = detail?.token_x?.address || detail?.base_token_address || null;
+  // Quote asset info for deploy amount denomination (SOL vs USDC/USDT)
+  const _quoteAddr = isXQuote ? txAddr : (isYQuote ? tyAddr : null);
+  const _quoteSymbol = _quoteAddr === SOL_MINT ? "SOL" : _quoteAddr === USDC_MINT ? "USDC" : _quoteAddr === USDT_MINT ? "USDT" : null;
   const entryMarketData = {
     entry_mcap: numberOrNull(detail?.token_x?.market_cap ?? detail?.base_token_market_cap),
     entry_tvl: tvl,
     entry_volume: numberOrNull(detail?.volume),
     entry_holders: numberOrNull(detail?.base_token_holders ?? detail?.token_x?.holders),
+    quote_symbol: _quoteSymbol,
+    quote_mint: _quoteAddr,
   };
 
   return { pass: true, entryMarketData };
@@ -1160,6 +1165,16 @@ async function runSafetyChecks(name, args) {
         args.amount_y = effectiveAmount;
         args.amount_sol = effectiveAmount;
       }
+      // USDC/USDT quote pair — override SOL-denominated amount with USDC-equivalent from config
+      if (args.quote_symbol === "USDC" || args.quote_symbol === "USDT") {
+        let usdcAmount = Number(config.management.deployAmountUsdc ?? 35);
+        if (args.unverified === true) {
+          usdcAmount = Math.min(usdcAmount, config.management.unverifiedDeployAmountSol ?? 0.05);
+        }
+        log("deploy", `[deploy-amount] ${args.quote_symbol} pair → depositing ${usdcAmount} ${args.quote_symbol} (wallet balance TBD)`);
+        args.amount_y = usdcAmount;
+        args.amount_sol = usdcAmount;
+      }
       // Last-resort fallback when no config and no LLM amount
       const _defaultDeployAmount = (() => {
         const base = 0.15;
@@ -1336,43 +1351,35 @@ async function runSafetyChecks(name, args) {
       if (process.env.DRY_RUN !== "true") {
         const balance = await getWalletBalances();
         const gasReserve = config.management.gasReserve;
-        const minSolRequired = amountY + gasReserve;
+        // For SOL-quote pairs, deploy amount consumes SOL. For USDC/USDT pairs, only gas reserve is needed in SOL.
+        const isNonSolQuote = args.quote_symbol === "USDC" || args.quote_symbol === "USDT";
+        const minSolRequired = isNonSolQuote ? gasReserve : (amountY + gasReserve);
         if (balance.sol < minSolRequired) {
           return {
             pass: false,
-            reason: `Insufficient SOL: have ${balance.sol} SOL, need ${minSolRequired} SOL (${amountY} deploy + ${gasReserve} gas reserve).`,
+            reason: `Insufficient SOL: have ${balance.sol} SOL, need ${minSolRequired} SOL${isNonSolQuote ? "" : ` (${amountY} deploy + ${gasReserve} gas reserve)`}.`,
           };
         }
-        // Check quote asset balance when it's not SOL
-        let detail;
-        try { detail = await fetchFreshPoolDetail(args.pool_address); } catch { detail = null; }
-        if (detail) {
-          const SOL_MINT = "So11111111111111111111111111111111111111112";
+        // Check quote asset balance for non-SOL pairs (USDC/USDT)
+        if (isNonSolQuote) {
           const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
           const USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
-          const txAddr = detail?.token_x?.address || "";
-          const tyAddr = detail?.token_y?.address || "";
-          const KNOWN_QUOTE_MINTS = new Set([SOL_MINT, USDC_MINT, USDT_MINT]);
-          const isXQuote = KNOWN_QUOTE_MINTS.has(txAddr);
-          const isYQuote = KNOWN_QUOTE_MINTS.has(tyAddr);
-          if (isXQuote || isYQuote) {
-            const quoteAddr = isXQuote ? txAddr : tyAddr;
-            if (quoteAddr !== SOL_MINT) {
-              const quoteSymbol = quoteAddr === USDC_MINT ? "USDC" : "USDT";
-              const tokenBalance = balance.tokens?.find(t => t.mint === quoteAddr);
-              const tokenAmount = tokenBalance?.balance ?? 0;
-              if (tokenAmount < amountY) {
-                if (config.management?.autoSwapForDeploy) {
-                  // Don't reject — auto-swap will happen before deploy
-                  args._quoteSwapNeeded = { mint: quoteAddr, symbol: quoteSymbol, needed: amountY, have: tokenAmount };
-                } else {
-                  return {
-                    pass: false,
-                    reason: `Insufficient ${quoteSymbol}: have ${tokenAmount} ${quoteSymbol}, need ${amountY} ${quoteSymbol} for deploy.`,
-                  };
-                }
+          const quoteMint = args.quote_mint;
+          const quoteSymbol = args.quote_symbol;
+          if (quoteMint && (quoteSymbol === "USDC" || quoteSymbol === "USDT")) {
+            const tokenBalance = balance.tokens?.find(t => t.mint === quoteMint);
+            const tokenAmount = tokenBalance?.balance ?? 0;
+            if (tokenAmount < amountY) {
+              if (config.management?.autoSwapForDeploy) {
+                args._quoteSwapNeeded = { mint: quoteMint, symbol: quoteSymbol, needed: amountY, have: tokenAmount };
+              } else {
+                return {
+                  pass: false,
+                  reason: `Insufficient ${quoteSymbol}: have ${tokenAmount} ${quoteSymbol}, need ${amountY} ${quoteSymbol} for deploy.`,
+                };
               }
             }
+            log("deploy", `[deploy-amount] ${quoteSymbol} pair → depositing ${amountY} ${quoteSymbol} (wallet balance=${tokenAmount} ${quoteSymbol})`);
           }
         }
       }

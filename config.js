@@ -339,6 +339,7 @@ export const config = {
     minAgeBeforeYieldCheck: u.minAgeBeforeYieldCheck ?? 60, // minutes before low yield can trigger close
     minSolToOpen:          u.minSolToOpen          ?? 0.15,
     deployAmountSol:       u.deployAmountSol       ?? 0.15,
+    deployAmountUsdc:      u.deployAmountUsdc      ?? 35,
     unverifiedDeployAmountSol: u.unverifiedDeployAmountSol ?? 0.05,
     gasReserve:            u.gasReserve            ?? 0.2,
     positionSizePct:       u.positionSizePct       ?? 0.35,

@@ -843,12 +843,21 @@ export async function deployPosition({
   const baseFactor = pool.lbPair.parameters?.baseFactor ?? 0;
   const actualBaseFee = base_fee ?? (baseFactor > 0 ? parseFloat((baseFactor * actualBinStep / 1e6 * 100).toFixed(4)) : null);
 
-  let totalYLamports = new BN(Math.floor(finalAmountY * 1e9));
+  // Fetch decimals for both mints — needed for correct lamport conversion (SOL=9, USDC=6, etc.)
+  const [yMintInfo, xMintInfo] = await Promise.all([
+    getConnection().getParsedAccountInfo(new PublicKey(pool.lbPair.tokenYMint)).catch(() => null),
+    getConnection().getParsedAccountInfo(new PublicKey(pool.lbPair.tokenXMint)).catch(() => null),
+  ]);
+  const yDecimals = yMintInfo?.value?.data?.parsed?.info?.decimals ?? 9;
+  const xDecimals = xMintInfo?.value?.data?.parsed?.info?.decimals ?? 9;
+
+  let totalYLamports = new BN(0);
   let totalXLamports = new BN(0);
+  if (finalAmountY > 0) {
+    totalYLamports = new BN(Math.floor(finalAmountY * Math.pow(10, yDecimals)));
+  }
   if (finalAmountX > 0) {
-    const mintInfo = await getConnection().getParsedAccountInfo(new PublicKey(pool.lbPair.tokenXMint));
-    const decimals = mintInfo.value?.data?.parsed?.info?.decimals ?? 9;
-    totalXLamports = new BN(Math.floor(finalAmountX * Math.pow(10, decimals)));
+    totalXLamports = new BN(Math.floor(finalAmountX * Math.pow(10, xDecimals)));
   }
 
   // Determine which side has the quote asset (SOL/USDC/USDT) for one-sided deposits,
@@ -861,9 +870,13 @@ export async function deployPosition({
   const KNOWN_QUOTE_MINTS = new Set([SOL_MINT, USDC_MINT, USDT_MINT]);
   const quoteIsX = KNOWN_QUOTE_MINTS.has(xMint);
   const quoteIsY = KNOWN_QUOTE_MINTS.has(yMint);
+  // For single-sided deposits on a non-quote Y side (e.g. token is Y, USDC is X),
+  // flip the full deposit to X and keep Y at 0
   if (isSingleSided && quoteIsX && totalYLamports.gtn(0)) {
     totalXLamports = totalYLamports;
     totalYLamports = new BN(0);
+  } else if (isSingleSided && !quoteIsY && !quoteIsX) {
+    // Neither side is a known quote — leave Y deposit as-is (unusual pool, let SDK decide)
   }
 
   // Pre-flight balance check in LIVE mode
