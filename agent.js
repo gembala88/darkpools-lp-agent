@@ -240,6 +240,13 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
   let omitToolChoice = false;
 
   let emptyStreak = 0;
+
+  // Track read-only tool call frequency — prevent loops where model re-calls get_top_candidates
+  // instead of making a deploy/no-deploy decision (observed with llama-3.3-70b)
+  const READONLY_TOOLS = new Set(["get_top_candidates", "get_active_bin", "get_pool_memory", "get_token_holders", "get_token_narrative", "get_token_info", "get_wallet_balance", "get_my_positions", "check_smart_wallets_on_pool", "search_pools", "discover_pools", "get_pool_detail", "get_recent_decisions", "get_performance_history"]);
+  const readCallCount = new Map();
+  const MAX_READ_CALLS = 2;
+
   for (let step = 0; step < maxSteps; step++) {
     log("agent", `Step ${step + 1}/${maxSteps}`);
 
@@ -476,6 +483,30 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
       }));
 
       messages.push(...toolResults);
+
+      // Read-only tool repetition guard — prevent model from looping on get_top_candidates
+      // instead of making a deploy/no-deploy decision
+      const calledTools = (msg.tool_calls || []).map(tc => tc.function.name.replace(/<.*$/, "").trim());
+      for (const name of calledTools) {
+        if (READONLY_TOOLS.has(name)) {
+          readCallCount.set(name, (readCallCount.get(name) || 0) + 1);
+        }
+      }
+      const getTopCount = readCallCount.get("get_top_candidates") || 0;
+      if (getTopCount >= MAX_READ_CALLS && calledTools.includes("get_top_candidates")) {
+        const isUrgent = getTopCount >= 3;
+        log("agent", `get_top_candidates called ${getTopCount}x — ${isUrgent ? "forcing" : "nudging"} decision`);
+        messages.push({
+          role: providerMode === "system" ? "system" : "user",
+          content: providerMode === "system"
+            ? (isUrgent
+              ? "CRITICAL: You have called get_top_candidates " + getTopCount + " times now. STOP. Deploy on the best candidate now or give a final NO DEPLOY decision with reasoning. Do NOT call get_top_candidates again."
+              : "You already have the candidate list from a previous call. Do NOT call get_top_candidates again. Either call deploy_position on your chosen pool now, or respond with your final no-deploy decision and reason.")
+            : (isUrgent
+              ? "[CRITICAL INSTRUCTION]\nYou have called get_top_candidates " + getTopCount + " times now. STOP. Deploy on the best candidate now or give a final NO DEPLOY decision with reasoning. Do NOT call get_top_candidates again."
+              : "[SYSTEM INSTRUCTION]\nYou already have the candidate list from a previous call. Do NOT call get_top_candidates again. Either call deploy_position on your chosen pool now, or respond with your final no-deploy decision and reason."),
+        });
+      }
     } catch (error) {
       log("error", `Agent loop error at step ${step}: ${error.message}`);
 
