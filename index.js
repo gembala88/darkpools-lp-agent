@@ -15,7 +15,7 @@ import { formatGmgnCandidateForPrompt } from "./tools/gmgn.js";
 import { config, reloadScreeningThresholds, computeDeployAmount, lanesConfig, activeLaneSetting, updateActiveLaneSetting, screeningContext, autoSelectProfile, applyProfileToConfig, getActiveProfileName, SCREENING_PROFILES, setActiveProfile, activeProfile, getProfileDisplayLabel, isProfileActive } from "./config.js";
 import { engines } from "./dist/engines/index.js";
 import { evolveThresholds, getPerformanceSummary } from "./lessons.js";
-import { executeTool, registerCronRestarter, sweepStuckTokens } from "./tools/executor.js";
+import { executeTool, registerCronRestarter, sweepStuckTokens, recordLivePnl } from "./tools/executor.js";
 import {
   startPolling,
   stopPolling,
@@ -1319,6 +1319,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
   let _pnlPollBusy = false;
   let _pnlSweepTick = 0;
   let _sweepRunning = false;
+  let _closingPositions = new Set();
   const pnlPollInterval = setInterval(async () => {
     if (_managementBusy || _screeningBusy || _pnlPollBusy) return;
     _pnlPollBusy = true;
@@ -1326,6 +1327,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
       if (getTrackedPositions(true).length === 0) return;
       const result = await getMyPositions({ force: true, silent: true }).catch(() => null);
       if (!result?.positions?.length) return;
+      let nonEmergencyTriggered = false;
       for (const p of result.positions) {
         if (
           !p.pnl_pct_suspicious &&
@@ -1336,35 +1338,81 @@ Summarize the current portfolio health, total fees earned, and performance of al
         }
         const exit = updatePnlAndCheckExits(p.position, p, config.management);
         if (exit) {
+          if (exit.action === "STOP_LOSS") {
+            if (_closingPositions.has(p.position)) {
+              log("state", `[PnL poll] Stop-loss for ${p.pair} already closing — skipping`);
+              continue;
+            }
+            _closingPositions.add(p.position);
+            log("state", `[PnL poll] STOP-LOSS immediate close ${p.pair} at ${p.pnl_pct}%`);
+            closePosition({ position_address: p.position, reason: exit.reason || "stop loss" })
+              .then(result => {
+                if (result?.success) {
+                  const pnlSol = (result.pnl_pct ?? 0) / 100 * config.management.deployAmountSol;
+                  recordLivePnl(pnlSol, p.pair || "unknown");
+                  notify(`🛑 STOP-LOSS closed ${p.pair}: ${result.pnl_pct?.toFixed(2) ?? "?"}% (limit ${config.management.stopLossPct}%)`, "critical").catch(() => {});
+                  log("state", `[PnL poll] Stop-loss close completed: ${p.pair} at ${result.pnl_pct?.toFixed(2) ?? "?"}%`);
+                }
+              })
+              .catch(e => log("cron_error", `[PnL poll] Stop-loss close failed for ${p.pair}: ${e.message}`))
+              .finally(() => { _closingPositions.delete(p.position); });
+            continue;
+          }
           if (exit.action === "TRAILING_TP" && exit.needs_confirmation && shouldUsePnlRecheck()) {
             if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, config.management.trailingDropPct)) {
               scheduleTrailingDropConfirmation(p.position);
             }
             continue;
           }
-          const cooldownMs = config.schedule.managementIntervalMin * 60 * 1000;
-          const sinceLastTrigger = Date.now() - _pollTriggeredAt;
-          if (sinceLastTrigger >= cooldownMs) {
-            _pollTriggeredAt = Date.now();
-            log("state", `[PnL poll] Exit alert: ${p.pair} — ${exit.reason} — triggering management`);
-            runManagementCycle({ silent: true }).catch((e) => log("cron_error", `Poll-triggered management failed: ${e.message}`));
-          } else {
-            log("state", `[PnL poll] Exit alert: ${p.pair} — ${exit.reason} — cooldown (${Math.round((cooldownMs - sinceLastTrigger) / 1000)}s left)`);
+          if (!nonEmergencyTriggered) {
+            nonEmergencyTriggered = true;
+            const cooldownMs = config.schedule.managementIntervalMin * 60 * 1000;
+            const sinceLastTrigger = Date.now() - _pollTriggeredAt;
+            if (sinceLastTrigger >= cooldownMs) {
+              _pollTriggeredAt = Date.now();
+              log("state", `[PnL poll] Exit alert: ${p.pair} — ${exit.reason} — triggering management`);
+              runManagementCycle({ silent: true }).catch((e) => log("cron_error", `Poll-triggered management failed: ${e.message}`));
+            } else {
+              log("state", `[PnL poll] Exit alert: ${p.pair} — ${exit.reason} — cooldown (${Math.round((cooldownMs - sinceLastTrigger) / 1000)}s left)`);
+            }
           }
-          break;
+          continue;
         }
         const closeRule = getDeterministicCloseRule(p, config.management);
         if (closeRule) {
-          const cooldownMs = config.schedule.managementIntervalMin * 60 * 1000;
-          const sinceLastTrigger = Date.now() - _pollTriggeredAt;
-          if (sinceLastTrigger >= cooldownMs) {
-            _pollTriggeredAt = Date.now();
-            log("state", `[PnL poll] Deterministic close rule: ${p.pair} — Rule ${closeRule.rule}: ${closeRule.reason} — triggering management`);
-            runManagementCycle({ silent: true }).catch((e) => log("cron_error", `Poll-triggered management failed: ${e.message}`));
-          } else {
-            log("state", `[PnL poll] Deterministic close rule: ${p.pair} — Rule ${closeRule.rule}: ${closeRule.reason} — cooldown (${Math.round((cooldownMs - sinceLastTrigger) / 1000)}s left)`);
+          if (closeRule.rule === 1) {
+            if (_closingPositions.has(p.position)) {
+              log("state", `[PnL poll] Stop-loss for ${p.pair} already closing — skipping`);
+              continue;
+            }
+            _closingPositions.add(p.position);
+            log("state", `[PnL poll] STOP-LOSS immediate close ${p.pair} at ${p.pnl_pct}% (Rule ${closeRule.rule})`);
+            closePosition({ position_address: p.position, reason: closeRule.reason || "stop loss" })
+              .then(result => {
+                if (result?.success) {
+                  const pnlSol = (result.pnl_pct ?? 0) / 100 * config.management.deployAmountSol;
+                  recordLivePnl(pnlSol, p.pair || "unknown");
+                  notify(`🛑 STOP-LOSS closed ${p.pair}: ${result.pnl_pct?.toFixed(2) ?? "?"}% (limit ${config.management.stopLossPct}%)`, "critical").catch(() => {});
+                  log("state", `[PnL poll] Stop-loss close completed: ${p.pair} at ${result.pnl_pct?.toFixed(2) ?? "?"}%`);
+                }
+              })
+              .catch(e => log("cron_error", `[PnL poll] Stop-loss close failed for ${p.pair}: ${e.message}`))
+              .finally(() => { _closingPositions.delete(p.position); });
+            continue;
           }
-          break;
+          if (!nonEmergencyTriggered) {
+            nonEmergencyTriggered = true;
+            const cooldownMs = config.schedule.managementIntervalMin * 60 * 1000;
+            const sinceLastTrigger = Date.now() - _pollTriggeredAt;
+            if (sinceLastTrigger >= cooldownMs) {
+              _pollTriggeredAt = Date.now();
+              log("state", `[PnL poll] Deterministic close rule: ${p.pair} — Rule ${closeRule.rule}: ${closeRule.reason} — triggering management`);
+              runManagementCycle({ silent: true }).catch((e) => log("cron_error", `Poll-triggered management failed: ${e.message}`));
+            } else {
+              log("state", `[PnL poll] Deterministic close rule: ${p.pair} — Rule ${closeRule.rule}: ${closeRule.reason} — cooldown (${Math.round((cooldownMs - sinceLastTrigger) / 1000)}s left)`);
+            }
+          }
+          continue;
         }
       }
     } finally {
