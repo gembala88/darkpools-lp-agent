@@ -539,3 +539,27 @@ export function syncOpenPositions(active_addresses) {
 
   if (changed) save(state);
 }
+
+// ─── Pure-logic exports for testing ────────────────────────────────────
+
+/**
+ * Pure stop-loss trigger check: should a position be stopped out?
+ * Matches the logic in getDeterministicCloseRule (index.js) and updatePnlAndCheckExits (state.js).
+ */
+export function shouldTriggerStopLoss(pnlPct, stopLossPct, isSuspicious) {
+  if (pnlPct == null) return false;
+  if (stopLossPct == null) return false;
+  if (isSuspicious) return false;
+  return pnlPct <= stopLossPct;
+}
+
+/**
+ * Pure suspect-PnL check: a position showing -90%+ loss but still holding value
+ * is likely bad data, not a real loss. Matches the logic in getDeterministicCloseRule.
+ */
+export function isPnlSuspect(pnlPct, hasValue) {
+  if (pnlPct == null) return false;
+  if (pnlPct > -90) return false;
+  if (hasValue) return true;
+  return false;
+}

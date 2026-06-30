@@ -1594,5 +1594,41 @@ function _persistLiveTradingPaused(paused) {
   } catch {}
 }
 
+// ─── Pure-logic exports for testing ────────────────────────────────────
+
+/**
+ * Check whether the daily net loss warrants a trading pause.
+ * @returns true when net cumulative loss equals or exceeds the configured limit.
+ */
+export function shouldPauseDailyLoss(realizedPnlSol, limit) {
+  if (limit == null || limit <= 0) return false;
+  return -realizedPnlSol >= limit;
+}
+
+/**
+ * Check whether a cooldown timestamp has elapsed.
+ * @param {number|null|undefined} pausedUntil  epoch ms
+ * @param {number} [now]  override for testing (default Date.now())
+ */
+export function isCooldownExpired(pausedUntil, now = Date.now()) {
+  if (!pausedUntil) return false;
+  return now >= pausedUntil;
+}
+
+/**
+ * Try SOL price fetchers in order; return the first successful result.
+ * Each fetcher should return a number (price) or throw/reject.
+ * Falls back to 150 with source="fallback(150)".
+ */
+export async function resolveSolPrice(fetchers = []) {
+  for (const fetcher of fetchers) {
+    try {
+      const price = await fetcher();
+      if (price != null && price > 0) return { price, source: fetcher.name || "unknown" };
+    } catch {}
+  }
+  return { price: 150, source: "fallback(150)" };
+}
+
 // Load daily PnL at module init
 _loadLiveDailyPnl();
