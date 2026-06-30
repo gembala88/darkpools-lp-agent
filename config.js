@@ -353,6 +353,7 @@ export const config = {
     liveDeployAmountSol:   u.liveDeployAmountSol   ?? 0.05,
     liveMaxPositions:      u.liveMaxPositions      ?? 1,
     liveDailyLossLimitSol: u.liveDailyLossLimitSol ?? 0.1,
+    dailyLossCooldownHours: u.dailyLossCooldownHours ?? 1, // auto-resume pause after N hours
     liveTradingPaused:     u.liveTradingPaused     ?? false,
     // Trailing take-profit
     trailingTakeProfit:    u.trailingTakeProfit    ?? true,
@@ -544,6 +545,7 @@ export function reloadScreeningThresholds() {
       if (process.env.DRY_RUN !== "true") config.risk.maxPositions = fresh.liveMaxPositions;
     }
     if (fresh.liveDailyLossLimitSol != null) config.management.liveDailyLossLimitSol = fresh.liveDailyLossLimitSol;
+    if (fresh.dailyLossCooldownHours != null) config.management.dailyLossCooldownHours = fresh.dailyLossCooldownHours;
     if (fresh.liveTradingPaused !== undefined) config.management.liveTradingPaused = fresh.liveTradingPaused;
     if (fresh.positionSizePct != null) config.management.positionSizePct = fresh.positionSizePct;
     if (fresh.minSolToOpen != null) config.management.minSolToOpen = fresh.minSolToOpen;

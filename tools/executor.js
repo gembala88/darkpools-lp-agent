@@ -1367,11 +1367,13 @@ async function runSafetyChecks(name, args) {
       // Live-mode daily loss limit check
       if (process.env.DRY_RUN !== "true") {
         _checkDailyPnlReset();
+        _checkAutoResumeDailyLoss();
         const limit = config.management.liveDailyLossLimitSol ?? 0.1;
-        if (_liveDailyPnl.realizedLossSol >= limit) {
+        const netLoss = -_liveDailyPnl.realizedPnlSol;
+        if (netLoss >= limit) {
           return {
             pass: false,
-            reason: `Daily loss limit (${limit} SOL) reached — ${_liveDailyPnl.realizedLossSol.toFixed(3)} SOL lost today. New openings blocked until limit resets tomorrow.`,
+            reason: `Daily loss limit (${limit} SOL) reached — net ${netLoss.toFixed(3)} SOL lost today. New openings blocked until cooldown elapses.`,
           };
         }
       }
@@ -1490,21 +1492,46 @@ function _checkDailyPnlReset() {
 }
 
 /**
+ * If live trading was paused by the daily loss limit, check whether the
+ * cooldown has elapsed and auto-resume if so.
+ */
+function _checkAutoResumeDailyLoss() {
+  if (!config.management.liveTradingPaused) return;
+  const pausedUntil = _liveDailyPnl.pausedUntil;
+  if (!pausedUntil) return;
+  if (Date.now() >= pausedUntil) {
+    config.management.liveTradingPaused = false;
+    _persistLiveTradingPaused(false);
+    log("cron", `[daily-loss] cooldown elapsed, live trading resumed (net ${_liveDailyPnl.realizedPnlSol.toFixed(3)} SOL on the day)`);
+    import('../telegram.js').then(m => m.notify(`✅ Daily loss cooldown elapsed, live trading resumed. Net PnL: ${_liveDailyPnl.realizedPnlSol.toFixed(3)} SOL today.`, "info").catch(() => {})).catch(() => {});
+  }
+}
+
+/**
  * Record realized PnL from a live-mode position close against the daily loss limit.
- * If the limit is exceeded, auto-pauses live trading and sends a Telegram alert.
+ * If net loss exceeds the limit, auto-pauses live trading with a configurable cooldown.
  */
 export function recordLivePnl(pnlSol, poolName) {
   if (process.env.DRY_RUN === "true") return;
   _checkDailyPnlReset();
+  // Before any check, attempt auto-resume if cooldown elapsed
+  _checkAutoResumeDailyLoss();
   _liveDailyPnl.realizedPnlSol += pnlSol;
   if (pnlSol < 0) _liveDailyPnl.realizedLossSol += Math.abs(pnlSol);
   _liveDailyPnl.trades.push({ pool: poolName, pnlSol: Number(pnlSol.toFixed(4)), time: new Date().toISOString() });
   _saveLiveDailyPnl();
   const limit = config.management.liveDailyLossLimitSol ?? 0.1;
-  if (_liveDailyPnl.realizedLossSol >= limit) {
+  // Gate on NET realized PnL, not gross loss — profits + fees offset losses
+  const netLoss = -_liveDailyPnl.realizedPnlSol;
+  if (netLoss >= limit) {
+    const cooldownMs = (config.management.dailyLossCooldownHours ?? 1) * 3600 * 1000;
+    _liveDailyPnl.pausedUntil = Date.now() + cooldownMs;
     config.management.liveTradingPaused = true;
     _persistLiveTradingPaused(true);
-    notify(`⚠️ DAILY LOSS LIMIT REACHED: ${_liveDailyPnl.realizedLossSol.toFixed(3)} SOL lost today (limit: ${limit} SOL). New live openings blocked until tomorrow. Existing positions keep their stop-loss.`, "critical").catch(() => {});
+    _saveLiveDailyPnl();
+    const resumeAt = new Date(Date.now() + cooldownMs).toISOString();
+    notify(`⚠️ DAILY LOSS LIMIT REACHED: net ${netLoss.toFixed(3)} SOL lost today (limit: ${limit} SOL). Live openings paused until ${resumeAt}. Existing positions keep their stop-loss.`, "critical").catch(() => {});
+    log("cron", `[daily-loss] paused, net ${netLoss.toFixed(3)} SOL >= limit ${limit}, resuming at ${resumeAt}`);
   }
 }
 
@@ -1513,6 +1540,7 @@ export function recordLivePnl(pnlSol, poolName) {
  */
 export function getLiveDailyPnl() {
   _checkDailyPnlReset();
+  _checkAutoResumeDailyLoss();
   return { ..._liveDailyPnl };
 }
 
