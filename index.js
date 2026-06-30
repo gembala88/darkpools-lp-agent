@@ -1320,13 +1320,21 @@ Summarize the current portfolio health, total fees earned, and performance of al
   let _pnlSweepTick = 0;
   let _sweepRunning = false;
   let _closingPositions = new Set();
+  let _pnlElideBusyLog = false;
   const pnlPollInterval = setInterval(async () => {
-    if (_managementBusy || _screeningBusy || _pnlPollBusy) return;
+    if (_pnlPollBusy) return;
     _pnlPollBusy = true;
     try {
       if (getTrackedPositions(true).length === 0) return;
       const result = await getMyPositions({ force: true, silent: true }).catch(() => null);
       if (!result?.positions?.length) return;
+      const busy = _managementBusy || _screeningBusy;
+      if (busy && !_pnlElideBusyLog) {
+        _pnlElideBusyLog = true;
+        log("state", "[PnL poll] screening/management busy — emergency stop-loss active, non-urgent checks deferred");
+      } else if (!busy) {
+        _pnlElideBusyLog = false;
+      }
       let nonEmergencyTriggered = false;
       for (const p of result.positions) {
         if (
@@ -1358,6 +1366,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
               .finally(() => { _closingPositions.delete(p.position); });
             continue;
           }
+          if (busy) continue;
           if (exit.action === "TRAILING_TP" && exit.needs_confirmation && shouldUsePnlRecheck()) {
             if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, config.management.trailingDropPct)) {
               scheduleTrailingDropConfirmation(p.position);
@@ -1400,6 +1409,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
               .finally(() => { _closingPositions.delete(p.position); });
             continue;
           }
+          if (busy) continue;
           if (!nonEmergencyTriggered) {
             nonEmergencyTriggered = true;
             const cooldownMs = config.schedule.managementIntervalMin * 60 * 1000;
