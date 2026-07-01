@@ -907,8 +907,8 @@ export async function executeTool(name, args) {
     }
     if (!args.deploy_source) args.deploy_source = "ai_chosen";
 
-    // Compute bins_below from volatility — LLM often sends formula string instead of number
-    if (args.volatility != null && (args.bins_below == null || typeof args.bins_below !== 'number' || isNaN(args.bins_below))) {
+    // Always compute bins_below from volatility — LLM often sends min value or formula string
+    if (args.volatility != null) {
       const raw= Number(args.volatility);
       if (!isNaN(raw) && raw > 0) {
         const minBins= config.strategy.minBinsBelow ?? 35;
@@ -918,7 +918,6 @@ export async function executeTool(name, args) {
         log("deploy", `Computed bins_below=${args.bins_below} from volatility=${raw}`);
       }
     }
-    // Fallback when volatility missing or zero
     if (args.bins_below == null || typeof args.bins_below !== 'number' || isNaN(args.bins_below)) {
       args.bins_below = config.strategy.minBinsBelow ?? 35;
     }
