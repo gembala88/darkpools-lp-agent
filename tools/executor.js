@@ -906,6 +906,22 @@ export async function executeTool(name, args) {
       args.lp_alpha_score = screeningContext.poolScores?.[args.pool_address] ?? null;
     }
     if (!args.deploy_source) args.deploy_source = "ai_chosen";
+
+    // Compute bins_below from volatility — LLM often sends formula string instead of number
+    if (args.volatility != null && (args.bins_below == null || typeof args.bins_below !== 'number' || isNaN(args.bins_below))) {
+      const raw= Number(args.volatility);
+      if (!isNaN(raw) && raw > 0) {
+        const minBins= config.strategy.minBinsBelow ?? 35;
+        const maxBins= config.strategy.maxBinsBelow ?? 69;
+        const computed = Math.round(minBins + (raw / 5) * (maxBins - minBins));
+        args.bins_below = Math.max(minBins, Math.min(maxBins, computed));
+        log("deploy", `Computed bins_below=${args.bins_below} from volatility=${raw}`);
+      }
+    }
+    // Fallback when volatility missing or zero
+    if (args.bins_below == null || typeof args.bins_below !== 'number' || isNaN(args.bins_below)) {
+      args.bins_below = config.strategy.minBinsBelow ?? 35;
+    }
   }
 
   // ─── Auto-swap SOL→USDC/USDT before non-SOL quote deploy ─────────
