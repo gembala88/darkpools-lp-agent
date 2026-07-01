@@ -1264,9 +1264,9 @@ async function runSafetyChecks(name, args) {
       if (args.quote_symbol === "USDC" || args.quote_symbol === "USDT") {
         let usdcAmount = Number(config.management.deployAmountUsdc ?? 35);
         if (args.unverified === true) {
-          usdcAmount = Math.min(usdcAmount, config.management.unverifiedDeployAmountSol ?? 0.05);
+          usdcAmount = Math.min(usdcAmount, config.management.unverifiedDeployAmountUsdc ?? 5);
         }
-        log("deploy", `[deploy-amount] ${args.quote_symbol} pair → depositing ${usdcAmount} ${args.quote_symbol} (wallet balance TBD)`);
+        log("deploy", `[deploy-amount] ${args.quote_symbol} pair → depositing ${usdcAmount} ${args.quote_symbol}`);
         args.amount_y = usdcAmount;
         args.amount_sol = usdcAmount;
       }
@@ -1381,12 +1381,14 @@ async function runSafetyChecks(name, args) {
         };
       }
 
-      const minDeploy = Math.max(0.05, config.management.deployAmountSol);
-      if (amountY < minDeploy) {
-        return {
-          pass: false,
-          reason: `Amount ${amountY} is below the minimum deploy amount (${minDeploy}). Use at least ${minDeploy}.`,
-        };
+      if (args.quote_symbol !== "USDC" && args.quote_symbol !== "USDT") {
+        const minDeploy = Math.max(0.05, config.management.deployAmountSol);
+        if (amountY < minDeploy) {
+          return {
+            pass: false,
+            reason: `Amount ${amountY} SOL is below the minimum deploy amount (${minDeploy} SOL).`,
+          };
+        }
       }
       if (amountY > config.risk.maxDeployAmount) {
         return {
