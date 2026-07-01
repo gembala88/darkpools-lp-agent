@@ -335,7 +335,7 @@ export class LPIntelligenceService {
       }
 
       // Override lpAlphaScore for volume-backed pools to survive tx-fetch failures
-      if (volumeFallbackActive && options?.isDryRun) {
+      if (volumeFallbackActive) {
         filterCriteria.lpAlphaScore = Math.max(lpAlphaScore, laneOverride ?? 25);
         filterCriteria.buySellScore = effectiveBuySellScore;
       }
