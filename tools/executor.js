@@ -239,21 +239,21 @@ async function validateDeployPoolThresholds(args) {
           const USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
           const KNOWN_QUOTE_MINTS = new Set([SOL_MINT, USDC_MINT, USDT_MINT]);
   const allowedQuotes = config.screening.allowedQuoteAssets ?? ["SOL"];
-  const txAddr = detail?.token_x?.address || detail?.token_x?.mint || "";
-  const tyAddr = detail?.token_y?.address || detail?.token_y?.mint || "";
+  const txAddr = detail?.token_x?.address || detail?.token_x?.mint || detail?.mint_x || "";
+  const tyAddr = detail?.token_y?.address || detail?.token_y?.mint || detail?.mint_y || "";
   const isXQuote = KNOWN_QUOTE_MINTS.has(txAddr);
   const isYQuote = KNOWN_QUOTE_MINTS.has(tyAddr);
   let quoteAddr = isXQuote ? txAddr : (isYQuote ? tyAddr : null);
   let quoteSymbol = quoteAddr === SOL_MINT ? "SOL" : quoteAddr === USDC_MINT ? "USDC" : quoteAddr === USDT_MINT ? "USDT" : null;
   if (!isXQuote && !isYQuote) {
     // Fallback: check pool name for USDC/USDT indicator
-    const poolName = (args.pool_name || "").toUpperCase();
+    const poolName = (args.pool_name || detail?.name || "").toUpperCase();
     if (poolName.includes("USDC")) { quoteAddr = USDC_MINT; quoteSymbol = "USDC"; }
     else if (poolName.includes("USDT")) { quoteAddr = USDT_MINT; quoteSymbol = "USDT"; }
     if (quoteSymbol) {
-      log("deploy", `[QUOTE_ASSET] ${args.pool_name || args.pool_address?.slice(0,8)} — detected ${quoteSymbol} from pool name (tx=${detail?.token_x?.symbol} ty=${detail?.token_y?.symbol})`);
+      log("deploy", `[QUOTE_ASSET] ${args.pool_name || detail?.name || args.pool_address?.slice(0,8)} — detected ${quoteSymbol} from pool name (tx=${detail?.token_x?.symbol || "?"} ty=${detail?.token_y?.symbol || "?"})`);
     } else {
-      log("deploy", `[QUOTE_ASSET] ${args.pool_name || args.pool_address?.slice(0, 8)} — no known quote asset detected (tx=${detail?.token_x?.symbol} ty=${detail?.token_y?.symbol})`);
+      log("deploy", `[QUOTE_ASSET] ${args.pool_name || detail?.name || args.pool_address?.slice(0, 8)} — no known quote asset detected (tx=${detail?.token_x?.symbol || "?"} ty=${detail?.token_y?.symbol || "?"})`);
     }
   }
   if (quoteSymbol && !allowedQuotes.includes(quoteSymbol)) {
