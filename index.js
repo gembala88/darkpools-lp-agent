@@ -953,6 +953,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
         isDryRun,
         top10Pct: pool._enrichment?.topHoldersPct ?? ti?.audit?.top_holders_pct ?? null,
         maxTop10Pct: config.screening.maxTop10Pct,
+        deployThresholds: config.deployThresholds,
       }).catch(() => null)
     ));
     const aiMap = {};

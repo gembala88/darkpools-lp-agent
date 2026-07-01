@@ -2,7 +2,7 @@ import { BaseEngine, EngineResult } from './baseEngine.js';
 
 export type DeploymentDecision = 'REJECT' | 'WATCHLIST' | 'SIMULATE' | 'DEPLOY_SMALL' | 'DEPLOY_NORMAL' | 'DEPLOY_AGGRESSIVE';
 
-interface Thresholds {
+export interface Thresholds {
   rejectScore: number;
   watchlistScore: number;
   simulateScore: number;

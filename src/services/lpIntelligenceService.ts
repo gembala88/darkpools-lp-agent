@@ -1,6 +1,6 @@
 import { MarketDataService } from './marketDataService.js';
 import { LpAlphaScoreEngine } from '../engines/lpAlphaScoreEngine.js';
-import { DeploymentDecisionEngine, DeploymentDecision } from '../engines/deploymentDecisionEngine.js';
+import { DeploymentDecisionEngine, DeploymentDecision, Thresholds } from '../engines/deploymentDecisionEngine.js';
 import { PositionSizingEngine } from '../engines/positionSizingEngine.js';
 import { NoDeployFilterV2, FilterCriteria } from '../filters/noDeployFilterV2.js';
 import { repositories } from '../repositories/index.js';
@@ -132,6 +132,8 @@ export class LPIntelligenceService {
       top10Pct?: number | null;
       /** User-configurable concentration threshold from config.screening.maxTop10Pct */
       maxTop10Pct?: number;
+      /** User-configurable deployment decision thresholds (from config.deployThresholds) */
+      deployThresholds?: Partial<Thresholds>;
     }
   ): Promise<MasterLPOutput> {
     this.logger.info(`Evaluating pool ${poolAddress} (${tokenMint})`);
@@ -348,8 +350,21 @@ export class LPIntelligenceService {
         this.logger.info(`[DECISION] ${label} score=${lpAlphaScore.toFixed(2)} ≥ threshold=${threshold} BUT rejected because: ${filterResult.rejectReasons.join(' | ')}`);
       }
 
+      // Apply user-configurable thresholds from nano before evaluating
+      if (options?.deployThresholds) {
+        this.decisionEngine.setThresholds(options.deployThresholds);
+      }
+
+      const decisionResult = await this.decisionEngine.evaluate({
+        lpAlphaScore,
+        confidence,
+        componentScores,
+      });
+
+      // Filter = safety gate (rug, bundler, concentration, dump, token age)
+      // decisionEngine = deploy sizing (DEPLOY_SMALL/NORMAL/AGGRESSIVE based on score+confidence)
       const finalDecision: DeploymentDecision = filterResult.passed
-        ? filterResult.decision
+        ? (decisionResult.metadata.decision as DeploymentDecision)
         : 'REJECT';
 
       const sizingResult = await this.sizingEngine.evaluate({
@@ -359,12 +374,6 @@ export class LPIntelligenceService {
         availableCapital: options?.availableCapital,
         riskScore: componentScores['risk'] ?? 50,
         marketRegime: regime as any,
-      });
-
-      const decisionResult = await this.decisionEngine.evaluate({
-        lpAlphaScore,
-        confidence,
-        componentScores,
       });
 
       const endTime = Date.now();

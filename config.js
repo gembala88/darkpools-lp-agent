@@ -203,6 +203,17 @@ export const config = {
   enableAutoPromote: u.enableAutoPromote ?? false,
   enableConfigManager: u.enableConfigManager ?? true,
 
+  // ─── Deployment Decision Thresholds (tunable from nano) ─────────
+  deployThresholds: {
+    rejectScore:       u.deployThresholds?.rejectScore       ?? 70,
+    watchlistScore:    u.deployThresholds?.watchlistScore    ?? 75,
+    simulateScore:     u.deployThresholds?.simulateScore     ?? 80,
+    deploySmallScore:  u.deployThresholds?.deploySmallScore  ?? 85,
+    deployNormalScore: u.deployThresholds?.deployNormalScore ?? 90,
+    deployAggressiveScore: u.deployThresholds?.deployAggressiveScore ?? 95,
+    minConfidence:     u.deployThresholds?.minConfidence     ?? 75,
+  },
+
   // ─── Risk Limits ─────────────────────────
   risk: {
     maxPositions:    u.maxPositions    ?? 5,
