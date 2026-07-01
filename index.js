@@ -1231,7 +1231,17 @@ IMPORTANT:
       });
     const funnelAppend = buildGmgnFunnelReport(gmgnStageCounts, gmgnAllFiltered, { fromStage: 2 });
     screenReport = funnelAppend ? `${content}\n\n─────────────\n${funnelAppend}` : content;
-    if (/⛔\s*NO DEPLOY/i.test(content)) {
+
+    // Deploy success trumps whatever the LLM wrote in its final text
+    if (deploySucceeded) {
+      _lastDecision = { decision: process.env.DRY_RUN === 'true' ? "DRY_RUN_DEPLOY" : "DEPLOY", pool: _lastDeployPool, reason: process.env.DRY_RUN === 'true' ? "Simulated deploy (DRY RUN)" : "Position deployed successfully", time: new Date().toISOString(), lane: _resolvedLane };
+      if (process.env.DRY_RUN === 'true') {
+        notify("🧪 DRY RUN Deploy: " + (_lastDeployPool || "unknown") + " (simulated)", "info").catch(() => {});
+      } else {
+        notify("✅ DEPLOY: Position deployed successfully", "deploy").catch(() => {});
+      }
+      screenReport = `🚀 DEPLOYED\n\n${_lastDeployPool || "unknown pool"}\n\nPosition deployed successfully.`;
+    } else if (/⛔\s*NO DEPLOY/i.test(content)) {
       appendDecision({
         type: "no_deploy",
         actor: "SCREENER",
@@ -1240,22 +1250,23 @@ IMPORTANT:
       });
       _lastDecision = { decision: "NO_DEPLOY", pool: null, reason: "LLM chose not to deploy", time: new Date().toISOString(), lane: _resolvedLane };
       notify("⛔ NO DEPLOY: LLM chose not to deploy any pool", "info").catch(() => {});
-    } else if (!deploySucceeded) {
+    } else if (deployAttempted) {
       appendDecision({
         type: "no_deploy",
         actor: "SCREENER",
-        summary: deployAttempted ? "Deploy attempt did not succeed" : "No successful deploy in screening cycle",
+        summary: "Deploy attempt did not succeed",
         reason: stripThink(content).slice(0, 500),
       });
-      _lastDecision = { decision: "DEPLOY_FAILED", pool: null, reason: deployAttempted ? "Deploy attempt did not succeed" : "No successful deploy", time: new Date().toISOString(), lane: _resolvedLane };
-      if (deployAttempted) notify("⛔ NO DEPLOY: Deploy attempt did not succeed", "info").catch(() => {});
-    } else if (deploySucceeded) {
-      _lastDecision = { decision: process.env.DRY_RUN === 'true' ? "DRY_RUN_DEPLOY" : "DEPLOY", pool: _lastDeployPool, reason: process.env.DRY_RUN === 'true' ? "Simulated deploy (DRY RUN)" : "Position deployed successfully", time: new Date().toISOString(), lane: _resolvedLane };
-      if (process.env.DRY_RUN === 'true') {
-        notify("🧪 DRY RUN Deploy: " + (_lastDeployPool || "unknown") + " (simulated)", "info").catch(() => {});
-      } else {
-        notify("✅ DEPLOY: Position deployed successfully", "deploy").catch(() => {});
-      }
+      _lastDecision = { decision: "DEPLOY_FAILED", pool: null, reason: "Deploy attempt did not succeed", time: new Date().toISOString(), lane: _resolvedLane };
+      notify("⛔ NO DEPLOY: Deploy attempt did not succeed", "info").catch(() => {});
+    } else {
+      appendDecision({
+        type: "no_deploy",
+        actor: "SCREENER",
+        summary: "No successful deploy in screening cycle",
+        reason: stripThink(content).slice(0, 500),
+      });
+      _lastDecision = { decision: "NO_DEPLOY", pool: null, reason: "No successful deploy", time: new Date().toISOString(), lane: _resolvedLane };
     }
 
   } catch (error) {
