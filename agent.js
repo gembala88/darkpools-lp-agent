@@ -206,6 +206,28 @@ function trimMessages(messages, maxMessages = 12) {
  * @param {number} maxSteps - Safety limit on iterations
  * @returns {string} - The agent's final text response
  */
+/**
+ * Detect when the LLM writes a deploy_position tool call as plain text
+ * instead of using the structured tool_calls API. Extract and return it.
+ */
+function extractToolCallFromText(content) {
+  const match = content.match(/\{\s*"name"\s*:\s*"(deploy_position)"\s*,/i);
+  if (!match) return null;
+  let depth = 0;
+  let end = match.index;
+  for (let i = match.index; i < content.length; i++) {
+    if (content[i] === '{') depth++;
+    else if (content[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+  }
+  try {
+    const parsed = JSON.parse(jsonrepair(content.slice(match.index, end)));
+    if (parsed && parsed.name === "deploy_position" && parsed.parameters) {
+      return { name: parsed.name, parameters: parsed.parameters };
+    }
+  } catch {}
+  return null;
+}
+
 export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHistory = [], agentType = "GENERAL", model = null, maxOutputTokens = null, options = {}) {
   const { interactive = false, onToolStart = null, onToolFinish = null } = options;
   // Build dynamic system prompt with current portfolio state
@@ -423,6 +445,23 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
         }
         log("agent", "Final answer reached");
         log("agent", msg.content);
+
+        // LLM sometimes writes deploy_position as text instead of using structured tool_calls
+        // Detect and convert it to a real tool call
+        if (msg.content) {
+          const extracted = extractToolCallFromText(msg.content);
+          if (extracted) {
+            log("agent", `Extracted text-embedded tool call: ${extracted.name}`);
+            msg.tool_calls = [{
+              id: `auto_${Date.now()}`,
+              type: "function",
+              function: { name: extracted.name, arguments: JSON.stringify(extracted.parameters) },
+            }];
+            sawToolCall = true;
+            continue;
+          }
+        }
+
         return { content: msg.content, userMessage: goal };
       }
       sawToolCall = true;
