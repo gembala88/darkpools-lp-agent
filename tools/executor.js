@@ -239,22 +239,28 @@ async function validateDeployPoolThresholds(args) {
           const USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
           const KNOWN_QUOTE_MINTS = new Set([SOL_MINT, USDC_MINT, USDT_MINT]);
   const allowedQuotes = config.screening.allowedQuoteAssets ?? ["SOL"];
-  const txAddr = detail?.token_x?.address || "";
-  const tyAddr = detail?.token_y?.address || "";
+  const txAddr = detail?.token_x?.address || detail?.token_x?.mint || "";
+  const tyAddr = detail?.token_y?.address || detail?.token_y?.mint || "";
   const isXQuote = KNOWN_QUOTE_MINTS.has(txAddr);
   const isYQuote = KNOWN_QUOTE_MINTS.has(tyAddr);
+  let quoteAddr = isXQuote ? txAddr : (isYQuote ? tyAddr : null);
+  let quoteSymbol = quoteAddr === SOL_MINT ? "SOL" : quoteAddr === USDC_MINT ? "USDC" : quoteAddr === USDT_MINT ? "USDT" : null;
   if (!isXQuote && !isYQuote) {
-    // Neither token is a known quote — pass through (unusual pool, let other filters decide)
-    log("deploy", `[QUOTE_ASSET] ${args.pool_name || args.pool_address?.slice(0, 8)} — no known quote asset detected (tx=${detail?.token_x?.symbol} ty=${detail?.token_y?.symbol})`);
-  } else {
-    const quoteAddr = isXQuote ? txAddr : tyAddr;
-    const quoteSymbol = quoteAddr === SOL_MINT ? "SOL" : quoteAddr === USDC_MINT ? "USDC" : "USDT";
-    if (!allowedQuotes.includes(quoteSymbol)) {
-      return {
-        pass: false,
-        reason: `Pool quote asset ${quoteSymbol} is not in allowedQuoteAssets [${allowedQuotes.join(", ")}].`,
-      };
+    // Fallback: check pool name for USDC/USDT indicator
+    const poolName = (args.pool_name || "").toUpperCase();
+    if (poolName.includes("USDC")) { quoteAddr = USDC_MINT; quoteSymbol = "USDC"; }
+    else if (poolName.includes("USDT")) { quoteAddr = USDT_MINT; quoteSymbol = "USDT"; }
+    if (quoteSymbol) {
+      log("deploy", `[QUOTE_ASSET] ${args.pool_name || args.pool_address?.slice(0,8)} — detected ${quoteSymbol} from pool name (tx=${detail?.token_x?.symbol} ty=${detail?.token_y?.symbol})`);
+    } else {
+      log("deploy", `[QUOTE_ASSET] ${args.pool_name || args.pool_address?.slice(0, 8)} — no known quote asset detected (tx=${detail?.token_x?.symbol} ty=${detail?.token_y?.symbol})`);
     }
+  }
+  if (quoteSymbol && !allowedQuotes.includes(quoteSymbol)) {
+    return {
+      pass: false,
+      reason: `Pool quote asset ${quoteSymbol} is not in allowedQuoteAssets [${allowedQuotes.join(", ")}].`,
+    };
   }
   if (isDryRun) {
     if (feeActiveTvlRatio != null) {
@@ -322,16 +328,13 @@ async function validateDeployPoolThresholds(args) {
   }
 
   const baseMint = detail?.token_x?.address || detail?.base_token_address || null;
-  // Quote asset info for deploy amount denomination (SOL vs USDC/USDT)
-  const _quoteAddr = isXQuote ? txAddr : (isYQuote ? tyAddr : null);
-  const _quoteSymbol = _quoteAddr === SOL_MINT ? "SOL" : _quoteAddr === USDC_MINT ? "USDC" : _quoteAddr === USDT_MINT ? "USDT" : null;
   const entryMarketData = {
     entry_mcap: numberOrNull(detail?.token_x?.market_cap ?? detail?.base_token_market_cap),
     entry_tvl: tvl,
     entry_volume: numberOrNull(detail?.volume),
     entry_holders: numberOrNull(detail?.base_token_holders ?? detail?.token_x?.holders),
-    quote_symbol: _quoteSymbol,
-    quote_mint: _quoteAddr,
+    quote_symbol: quoteSymbol,
+    quote_mint: quoteAddr,
   };
 
   return { pass: true, entryMarketData };
