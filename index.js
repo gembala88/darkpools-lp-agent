@@ -148,7 +148,13 @@ function stripToolCallJson(text) {
     if (text[i] === '{') depth++;
     else if (text[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
   }
-  return text.slice(0, idx) + text.slice(end);
+  const before = text.slice(0, idx);
+  const after = text.slice(end);
+  // If stripping leaves only whitespace, the LLM only wrote a JSON tool call as text — generate fallback
+  if (!(before + after).trim()) {
+    return "⛔ NO DEPLOY\n\nCycle finished — LLM wrote tool call as text instead of calling it.";
+  }
+  return before + after;
 }
 
 function sanitizeUntrustedPromptText(text, maxLen = 500) {
@@ -1277,12 +1283,11 @@ IMPORTANT:
     _screeningBusy = false;
     drainTelegramQueue().catch(() => {});
     if (!silent && telegramEnabled()) {
-      if (screenReport) {
-        const reportText = `🔍 Screening Cycle\n\n${stripThink(screenReport)}`;
-        if (liveMessage) await liveMessage.finalize(reportText).catch(() => {});
-        else sendMessage(reportText).catch(() => { });
-        sendToChannel(reportText).catch(() => {});
-      }
+      const safeReport = screenReport || "⛔ NO DEPLOY\n\nScreening cycle produced no report.";
+      const reportText = `🔍 Screening Cycle\n\n${stripThink(safeReport)}`;
+      if (liveMessage) await liveMessage.finalize(reportText).catch(() => {});
+      else sendMessage(reportText).catch(() => { });
+      sendToChannel(reportText).catch(() => {});
     }
   }
   return screenReport;
