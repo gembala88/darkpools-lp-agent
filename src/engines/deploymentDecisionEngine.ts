@@ -56,7 +56,7 @@ export class DeploymentDecisionEngine extends BaseEngine {
       return 'REJECT';
     }
 
-    const hasNegativeSignal = Object.values(components).some(v => v === 0);
+    const hasNegativeSignal = Object.values(components).some(v => v < 30);
     if (hasNegativeSignal) {
       return 'WATCHLIST';
     }
