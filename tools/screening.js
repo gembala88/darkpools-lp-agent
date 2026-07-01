@@ -222,8 +222,9 @@ function getRawPoolScreeningRejectReason(pool, s) {
   if (volume == null || volume < s.minVolume) return `volume ${volume ?? "unknown"} below minVolume ${s.minVolume}`;
   if (tvl == null || tvl < s.minTvl) return `TVL ${tvl ?? "unknown"} below minTvl ${s.minTvl}`;
   if (s.maxTvl != null && tvl > s.maxTvl) return `TVL ${tvl} above maxTvl ${s.maxTvl}`;
-  // Check bin_step for Meteora DLMM pools; skip for non-DLMM DEX pools
-  if (pool?.dex_source === false || pool?.dex_source === true || pool?.dex_source == null) {
+  // Skip bin_step filter for non-DLMM pools (Raydium CLMM, Orca Whirlpool, etc.)
+  // These use different tick/spacing mechanics incompatible with Meteora's bin_step
+  if (pool?.dex_source === true || pool?.dex_source == null) {
     if (binStep == null || binStep < s.minBinStep) return `bin_step ${binStep ?? "unknown"} below minBinStep ${s.minBinStep}`;
     if (binStep > s.maxBinStep) return `bin_step ${binStep} above maxBinStep ${s.maxBinStep}`;
   }
