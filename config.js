@@ -204,6 +204,7 @@ export const config = {
   enableConfigManager: u.enableConfigManager ?? true,
 
   // ─── Deployment Decision Thresholds (tunable from nano) ─────────
+  // unused after revert — deploy decided by noDeployFilter + agent
   deployThresholds: {
     rejectScore:       u.deployThresholds?.rejectScore       ?? 70,
     watchlistScore:    u.deployThresholds?.watchlistScore    ?? 75,
