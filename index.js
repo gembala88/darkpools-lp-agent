@@ -131,10 +131,24 @@ const TRAILING_PEAK_CONFIRM_TOLERANCE = 0.85;
 const TRAILING_DROP_CONFIRM_DELAY_MS = 15_000;
 const TRAILING_DROP_CONFIRM_TOLERANCE_PCT = 1.0;
 
-/** Strip <think>...</think> reasoning blocks that some models leak into output */
+/** Strip <think>...</think> reasoning blocks and raw JSON tool calls that some models leak into output */
 function stripThink(text) {
   if (!text) return text;
-  return text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  let result = text.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  result = stripToolCallJson(result);
+  return result.trim();
+}
+
+function stripToolCallJson(text) {
+  const idx = text.search(/\{\s*"name"\s*:\s*"deploy_position"\s*,/);
+  if (idx === -1) return text;
+  let depth = 0;
+  let end = idx;
+  for (let i = idx; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+  }
+  return text.slice(0, idx) + text.slice(end);
 }
 
 function sanitizeUntrustedPromptText(text, maxLen = 500) {

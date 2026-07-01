@@ -364,7 +364,8 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
               JSON.parse(tc.function.arguments);
             } catch {
               try {
-                tc.function.arguments = JSON.stringify(JSON.parse(jsonrepair(tc.function.arguments)));
+                const raw = tc.function.arguments.replace(/:undefined\b/gi, ":null");
+                tc.function.arguments = JSON.stringify(JSON.parse(jsonrepair(raw)));
                 log("warn", `Repaired malformed JSON args for ${tc.function.name}`);
               } catch {
                 tc.function.arguments = "{}";
@@ -438,8 +439,15 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
             functionArgs = JSON.parse(jsonrepair(toolCall.function.arguments));
             log("warn", `Repaired malformed JSON args for ${functionName}`);
           } catch (parseError) {
-            log("error", `Failed to parse args for ${functionName}: ${parseError.message}`);
-            functionArgs = {};
+            // Try once more with undefined→null fix
+            try {
+              const raw = toolCall.function.arguments.replace(/:undefined\b/gi, ":null");
+              functionArgs = JSON.parse(jsonrepair(raw));
+              log("warn", `Repaired JSON with undefined→null for ${functionName}`);
+            } catch {
+              log("error", `Failed to parse args for ${functionName}: ${parseError.message}`);
+              functionArgs = {};
+            }
           }
         }
 
