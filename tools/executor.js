@@ -376,7 +376,7 @@ async function checkSwapRoute(inputMint, rawAmount, minSwapBackSol) {
  * Can be called after close (auto) or manually via sweep_stuck_tokens tool.
  */
 /**
- * Scan all non-SOL/USDC/USDT wallet tokens and swap any with a viable route back to SOL.
+ * Scan all non-SOL wallet tokens and swap any with a viable route back to SOL.
  * Can be called after close (auto), manually via sweep_stuck_tokens tool, or by the periodic sweeper.
  * @param {object} [opts] - Options
  * @param {number} [opts.minSwapUsdOverride] - Override the minimum USD threshold; uses max(minSwapBackUsd, override)
@@ -394,11 +394,6 @@ export async function sweepStuckTokens(opts = {}) {
       const mint = token.mint;
       const usd = token.usd;
       if (mint === SOL_MINT) continue;
-      if (mint === config.tokens.USDC || mint === config.tokens.USDT) {
-        log("executor", `[swap-back] keeping ${token.symbol || mint.slice(0, 8)} $${usd ?? "?"} for future quote-pair deploy`);
-        kept++;
-        continue;
-      }
       // Known USD below threshold → skip as dust
       if (usd != null && usd < minSwapUsd && usd > 0) {
         log("executor", `[swap-back] skipping dust ${token.symbol || mint.slice(0, 8)} $${usd} (below min $${minSwapUsd})`);
@@ -1191,7 +1186,7 @@ export async function executeTool(name, args) {
             log("executor", `[swap-back] post-close sweep: ${sweepResult.swapped} swapped, ${sweepResult.skipped} skipped, ${sweepResult.kept} kept, ${sweepResult.errors} errors`);
           }
           result.auto_swapped = true;
-          result.auto_swap_note = `All non-SOL tokens (excl. USDC/USDT) auto-swapped back to SOL after close. Sweep: ${sweepResult.swapped} swapped, ${sweepResult.skipped} skipped. Do NOT call swap_token again.`;
+          result.auto_swap_note = `All non-SOL tokens auto-swapped back to SOL after close. Sweep: ${sweepResult.swapped} swapped, ${sweepResult.skipped} skipped. Do NOT call swap_token again.`;
         }
       } else if (name === "claim_fees" && config.management.autoSwapAfterClaim && result.base_mint) {
         try {
