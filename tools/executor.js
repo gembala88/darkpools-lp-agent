@@ -14,7 +14,7 @@ import { studyTopLPers } from "./study.js";
 import { addLesson, clearAllLessons, clearPerformance, removeLessonsByKeyword, getPerformanceHistory, pinLesson, unpinLesson, listLessons } from "../lessons.js";
 import { setPositionInstruction } from "../state.js";
 
-import { getPoolMemory, addPoolNote } from "../pool-memory.js";
+import { getPoolMemory, addPoolNote, setPoolRejectionCooldown } from "../pool-memory.js";
 import { addStrategy, listStrategies, getStrategy, setActiveStrategy, removeStrategy } from "../strategy-library.js";
 import { addToBlacklist, removeFromBlacklist, listBlacklist } from "../token-blacklist.js";
 import { blockDev, unblockDev, listBlockedDevs } from "../dev-blocklist.js";
@@ -1236,6 +1236,10 @@ async function runSafetyChecks(name, args) {
       const minStep = config.screening.minBinStep;
       const maxStep = config.screening.maxBinStep;
       if (args.bin_step != null && (args.bin_step < minStep || args.bin_step > maxStep)) {
+        const poolAddr = args.pool_address || args.poolAddress;
+        if (poolAddr) {
+          setPoolRejectionCooldown(poolAddr, config.management.screeningRejectCooldownHours ?? 1, `bin_step ${args.bin_step} out of range`);
+        }
         return {
           pass: false,
           reason: `bin_step ${args.bin_step} is outside the allowed range of [${minStep}-${maxStep}].`,
@@ -1250,6 +1254,7 @@ async function runSafetyChecks(name, args) {
           const lpStudy = await studyTopLPers({ pool_address: poolAddr, limit: 1 });
           const ownerCount = lpStudy?.owner_count ?? lpStudy?.lpers?.length ?? null;
           if (ownerCount != null && ownerCount < minLpOwners) {
+            setPoolRejectionCooldown(poolAddr, config.management.screeningRejectCooldownHours ?? 1, `only ${ownerCount} LP owner(s)`);
             return {
               pass: false,
               reason: `Pool has only ${ownerCount} active LP owner(s), below minimum ${minLpOwners} required. High concentration risk — LP dump could crash price.`,

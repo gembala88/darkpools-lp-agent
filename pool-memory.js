@@ -411,3 +411,30 @@ export function addPoolNote({ pool_address, note }) {
   log("pool-memory", `Note added to ${pool_address.slice(0, 8)}: ${safeNote}`);
   return { saved: true, pool_address, note: safeNote };
 }
+
+/**
+ * Set a cooldown on a pool that was rejected by a safety check.
+ * Prevents the same pool from being re-screened immediately.
+ */
+export function setPoolRejectionCooldown(poolAddress, hours, reason) {
+  if (!poolAddress) return;
+  const db = load();
+  if (!db[poolAddress]) {
+    db[poolAddress] = {
+      name: poolAddress.slice(0, 8),
+      base_mint: null,
+      deploys: [],
+      total_deploys: 0,
+      avg_pnl_pct: 0,
+      win_rate: 0,
+      last_deployed_at: null,
+      last_outcome: null,
+      notes: [],
+    };
+  }
+  const cooldownUntil = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+  db[poolAddress].cooldown_until = cooldownUntil;
+  db[poolAddress].cooldown_reason = reason;
+  save(db);
+  log("pool-memory", `Pool ${poolAddress.slice(0, 8)} rejection cooldown until ${cooldownUntil} (${reason})`);
+}
