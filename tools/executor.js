@@ -1242,6 +1242,24 @@ async function runSafetyChecks(name, args) {
         };
       }
 
+      // LP concentration check — reject if pool has too few unique LP owners
+      try {
+        const minLpOwners = config.management.minLpOwners ?? 3;
+        const poolAddr = args.pool_address || args.poolAddress;
+        if (poolAddr && minLpOwners > 0) {
+          const lpStudy = await studyTopLPers({ pool_address: poolAddr, limit: 1 });
+          const ownerCount = lpStudy?.owner_count ?? lpStudy?.lpers?.length ?? null;
+          if (ownerCount != null && ownerCount < minLpOwners) {
+            return {
+              pass: false,
+              reason: `Pool has only ${ownerCount} active LP owner(s), below minimum ${minLpOwners} required. High concentration risk — LP dump could crash price.`,
+            };
+          }
+        }
+      } catch (e) {
+        log("deploy_warn", `[LP concentration] studyTopLPers failed for ${args.pool_address?.slice(0,8)}: ${e.message} — skipping LP concentration check`);
+      }
+
       // Configured deploy amount (deployAmountSol / liveDeployAmountSol) takes priority over LLM's suggestion
       const configuredAmount = config.management.liveDeployAmountSol ?? config.management.deployAmountSol;
       const llmProvidedAmount = args.amount_y ?? args.amount_sol;
