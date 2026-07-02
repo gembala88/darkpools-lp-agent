@@ -219,8 +219,35 @@ function extractToolCallFromText(content) {
     if (content[i] === '{') depth++;
     else if (content[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
   }
+  let raw = content.slice(match.index, end);
+
+  // Balanced-paren :round(EXPR) evaluator — handles any nesting depth
+  while (/:\s*round\s*\(/i.test(raw)) {
+    const rmatch = raw.match(/:\s*round\s*\(/i);
+    if (!rmatch) break;
+    let depth = 0;
+    const startParen = rmatch.index + rmatch[0].length - 1;
+    let close = -1;
+    for (let i = startParen; i < raw.length; i++) {
+      if (raw[i] === '(') depth++;
+      else if (raw[i] === ')') { depth--; if (depth === 0) { close = i; break; } }
+    }
+    if (close === -1) break;
+    const expr = raw.slice(startParen + 1, close);
+    try {
+      const computed = eval(expr);
+      raw = raw.slice(0, rmatch.index) + `: ${Number.isFinite(computed) ? computed : 0}` + raw.slice(close + 1);
+    } catch {
+      raw = raw.slice(0, rmatch.index) + ': 0' + raw.slice(close + 1);
+    }
+  }
+
+  // Normalize :None → :null and : undefined → :null
+  raw = raw.replace(/:\s*None\b/gi, ':null');
+  raw = raw.replace(/"undefined"/gi, 'null');
+
   try {
-    const parsed = JSON.parse(jsonrepair(content.slice(match.index, end)));
+    const parsed = JSON.parse(jsonrepair(raw));
     if (parsed && parsed.name === "deploy_position" && parsed.parameters) {
       return { name: parsed.name, parameters: parsed.parameters };
     }
@@ -386,7 +413,7 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
               JSON.parse(tc.function.arguments);
             } catch {
               try {
-                const raw = tc.function.arguments.replace(/:undefined\b/gi, ":null");
+                const raw = tc.function.arguments.replace(/:\s*undefined\b/gi, ":null").replace(/:\s*None\b/gi, ":null");
                 tc.function.arguments = JSON.stringify(JSON.parse(jsonrepair(raw)));
                 log("warn", `Repaired malformed JSON args for ${tc.function.name}`);
               } catch {
@@ -458,11 +485,11 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
               function: { name: extracted.name, arguments: JSON.stringify(extracted.parameters) },
             }];
             sawToolCall = true;
-            continue;
           }
         }
-
-        return { content: msg.content, userMessage: goal };
+        if (!msg.tool_calls || msg.tool_calls.length === 0) {
+          return { content: msg.content, userMessage: goal };
+        }
       }
       sawToolCall = true;
 
@@ -480,7 +507,7 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
           } catch (parseError) {
             // Try once more with undefined→null fix
             try {
-              const raw = toolCall.function.arguments.replace(/:undefined\b/gi, ":null");
+              const raw = toolCall.function.arguments.replace(/:\s*undefined\b/gi, ":null").replace(/:\s*None\b/gi, ":null");
               functionArgs = JSON.parse(jsonrepair(raw));
               log("warn", `Repaired JSON with undefined→null for ${functionName}`);
             } catch {

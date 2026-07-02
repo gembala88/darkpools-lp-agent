@@ -17,6 +17,7 @@ let chatId = null;
 let _offset  = 0;
 let _polling = false;
 let _liveMessageDepth = 0;
+let _closeNotifQueue = [];
 let _warnedMissingChatId = false;
 let _warnedMissingAllowedUsers = false;
 
@@ -709,6 +710,7 @@ export async function createLiveMessage(title, intro = "Starting...", totalSteps
       }
 
       _liveMessageDepth = Math.max(0, _liveMessageDepth - 1);
+      _flushCloseNotifQueue();
       typing.stop();
     },
     async fail(errorText) {
@@ -749,6 +751,7 @@ export async function createLiveMessage(title, intro = "Starting...", totalSteps
       }
 
       _liveMessageDepth = Math.max(0, _liveMessageDepth - 1);
+      _flushCloseNotifQueue();
       typing.stop();
     },
   };
@@ -907,12 +910,31 @@ export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, 
   );
 }
 
-export async function notifyClose({ pair, pnlUsd, pnlPct }) {
-  if (hasActiveLiveMessage()) return;
+async function _flushCloseNotifQueue() {
+  if (_closeNotifQueue.length === 0) return;
+  const q = _closeNotifQueue.splice(0);
+  for (const n of q) {
+    const sign = n.pnlUsd >= 0 ? "+" : "";
+    const feesLine = n.feesUsd > 0 ? `\nFees: +$${(n.feesUsd ?? 0).toFixed(2)}` : "";
+    try {
+      await notifyHTML(
+        `🔒 <b>Closed</b> ${n.pair}\n` +
+        `PnL: ${sign}$${(n.pnlUsd ?? 0).toFixed(2)} (${sign}${(n.pnlPct ?? 0).toFixed(2)}%)${feesLine}`
+      );
+    } catch {}
+  }
+}
+
+export async function notifyClose({ pair, pnlUsd, pnlPct, feesUsd }) {
+  if (hasActiveLiveMessage()) {
+    _closeNotifQueue.push({ pair, pnlUsd, pnlPct, feesUsd });
+    return;
+  }
   const sign = pnlUsd >= 0 ? "+" : "";
+  const feesLine = feesUsd > 0 ? `\nFees: +$${(feesUsd ?? 0).toFixed(2)}` : "";
   await notifyHTML(
     `🔒 <b>Closed</b> ${pair}\n` +
-    `PnL: ${sign}$${(pnlUsd ?? 0).toFixed(2)} (${sign}${(pnlPct ?? 0).toFixed(2)}%)`
+    `PnL: ${sign}$${(pnlUsd ?? 0).toFixed(2)} (${sign}${(pnlPct ?? 0).toFixed(2)}%)${feesLine}`
   );
 }
 

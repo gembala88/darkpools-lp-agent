@@ -1163,7 +1163,7 @@ export async function executeTool(name, args) {
           notifyDeploy({ pair: result.pool_name || args.pool_name || args.pool_address?.slice(0, 8), amountSol: args.amount_y ?? args.amount_sol ?? 0, position: result.position, tx: result.txs?.[0] ?? result.tx, priceRange: result.price_range, rangeCoverage: result.range_coverage, binStep: result.bin_step, baseFee: result.base_fee }).catch(() => {});
         }
       } else if (name === "close_position") {
-        notifyClose({ pair: result.pool_name || args.position_address?.slice(0, 8), pnlUsd: result.pnl_usd ?? 0, pnlPct: result.pnl_pct ?? 0 }).catch(() => {});
+        notifyClose({ pair: result.pool_name || args.position_address?.slice(0, 8), pnlUsd: result.pnl_usd ?? 0, pnlPct: result.pnl_pct ?? 0, feesUsd: result.fees_usd ?? 0 }).catch(() => {});
         // Track live-mode realized PnL for daily loss limit
         if (process.env.DRY_RUN !== "true") {
           const pnlPct = result.pnl_pct ?? 0;
@@ -1300,6 +1300,10 @@ async function runSafetyChecks(name, args) {
           reason: `volatility ${args.volatility} is invalid. Refusing deploy because the volatility feed is unusable.`,
         };
       }
+      // Normalize string "null" that LLM sometimes passes
+      if (args.downside_pct === "null") args.downside_pct = null;
+      if (args.upside_pct === "null") args.upside_pct = null;
+
       if (
         args.downside_pct == null &&
         args.upside_pct == null &&
@@ -1395,8 +1399,8 @@ async function runSafetyChecks(name, args) {
         };
       }
 
-      // Cap deploy amount for unverified tokens (rug protection)
-      if (args.unverified === true) {
+      // Cap deploy amount for unverified tokens (rug protection) — skip USDC/USDT pairs (already capped by unverifiedDeployAmountUsdc)
+      if (args.unverified === true && args.quote_symbol !== "USDC" && args.quote_symbol !== "USDT") {
         const unverifiedCap = config.management.unverifiedDeployAmountSol ?? 0.05;
         if (amountY > unverifiedCap) {
           const cappedAmountY = Math.min(amountY, unverifiedCap);

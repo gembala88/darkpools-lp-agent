@@ -714,12 +714,13 @@ export async function deployPosition({
   const actualBinStep = pool.lbPair.binStep;
   const activePrice = Number(getPriceOfBinByBinId(activeBin.binId, actualBinStep).toString());
 
+  // Normalize string "null" that LLM sometimes passes
+  if (downside_pct === "null") downside_pct = null;
+  if (upside_pct === "null") upside_pct = null;
+
   if (downside_pct != null || upside_pct != null) {
-    // Normalize string "null" that LLM sometimes passes
-    const rawDown = downside_pct === "null" ? null : downside_pct;
-    const rawUp = upside_pct === "null" ? null : upside_pct;
-    const downsidePct = Math.max(0, Number(rawDown ?? 0));
-    const upsidePct = Math.max(0, Number(rawUp ?? 0));
+    const downsidePct = Math.max(0, Number(downside_pct ?? 0));
+    const upsidePct = Math.max(0, Number(upside_pct ?? 0));
 
     if (!Number.isFinite(downsidePct) || !Number.isFinite(upsidePct)) {
       throw new Error("downside_pct and upside_pct must be valid numbers.");
