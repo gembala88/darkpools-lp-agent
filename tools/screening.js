@@ -1460,6 +1460,24 @@ export async function getTopCandidates({ limit = 10 } = {}) {
           return false;
         }
       }
+      // Activity check — reject pools with insufficient genuine trading activity
+      if (!p.dex_source) {
+        const swapCount = Number(p.swap_count ?? 0);
+        const uniqueTraders = Number(p.unique_traders ?? 0);
+        const feeWindow = Number(p.fee_window ?? 0);
+        const minSwap = Number(config.screening.minSwapCount ?? 0);
+        const minTraders = Number(config.screening.minUniqueTraders ?? 0);
+        if ((minSwap > 0 && swapCount < minSwap) || (minTraders > 0 && uniqueTraders < minTraders)) {
+          pushFilteredReason(filteredOut, p, `low activity: swaps=${swapCount} (min=${minSwap}), traders=${uniqueTraders} (min=${minTraders})`);
+          log("screening", `[activity-reject] skipped ${p.name} — swaps=${swapCount}, traders=${uniqueTraders}`);
+          return false;
+        }
+        if (swapCount === 0 && uniqueTraders === 0 && feeWindow === 0 && Number(p.volume_window ?? 0) === 0) {
+          pushFilteredReason(filteredOut, p, `zero activity — 0 swaps, 0 traders, $0 fees, $0 volume`);
+          log("screening", `[dead-pool] skipped ${p.name} — no activity in ${config.screening.timeframe} window`);
+          return false;
+        }
+      }
       if (occupiedPools.has(p.pool)) {
         pushFilteredReason(filteredOut, p, "already have an open position in this pool");
         return false;

@@ -268,6 +268,9 @@ export const config = {
     pvpMinActiveTvl:      u.pvpMinActiveTvl     ?? 5000,
     pvpMinHolders:        u.pvpMinHolders       ?? 500,
     pvpMinGlobalFeesSol:  u.pvpMinGlobalFeesSol ?? 30,
+    // Activity thresholds — reject pools with no genuine trading activity (0 = disabled)
+    minSwapCount:        u.minSwapCount        ?? 0,
+    minUniqueTraders:    u.minUniqueTraders    ?? 0,
     // Volume-trend thresholds (nano-editable)
     volumeAccelRatio:     u.volumeAccelRatio    ?? 1.5,
     volumeDecelRatio:     u.volumeDecelRatio    ?? 0.5,
