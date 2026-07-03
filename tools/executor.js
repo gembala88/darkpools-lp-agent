@@ -1475,13 +1475,14 @@ async function runSafetyChecks(name, args) {
       if (process.env.DRY_RUN !== "true") {
         const balance = await getWalletBalances();
         const gasReserve = config.management.gasReserve;
+        const RENT_BUFFER = 0.01; // covers rent for WSOL ATA + position account
         // For SOL-quote pairs, deploy amount consumes SOL. For USDC/USDT pairs, only gas reserve is needed in SOL.
         const isNonSolQuote = args.quote_symbol === "USDC" || args.quote_symbol === "USDT";
-        const minSolRequired = isNonSolQuote ? gasReserve : (amountY + gasReserve);
+        const minSolRequired = isNonSolQuote ? (gasReserve + RENT_BUFFER) : (amountY + gasReserve + RENT_BUFFER);
         if (balance.sol < minSolRequired) {
           return {
             pass: false,
-            reason: `Insufficient SOL: have ${balance.sol} SOL, need ${minSolRequired} SOL${isNonSolQuote ? "" : ` (${amountY} deploy + ${gasReserve} gas reserve)`}.`,
+            reason: `Insufficient SOL: have ${balance.sol.toFixed(4)} SOL, need ${minSolRequired.toFixed(2)} SOL${isNonSolQuote ? "" : ` (${amountY} deploy + ${gasReserve} gas + ${RENT_BUFFER} rent buffer)`}.`,
           };
         }
         // Check quote asset balance for non-SOL pairs (USDC/USDT)
