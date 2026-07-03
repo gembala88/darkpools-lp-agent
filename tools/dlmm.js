@@ -889,11 +889,12 @@ export async function deployPosition({
     const walletLocal = getWallet();
     const balance = await getConnection().getBalance(walletLocal.publicKey);
     preBalanceSol = balance / 1e9;
+    const RENT_BUFFER = 0.01;
     const neededSol = isSingleSided && !quoteIsY && !quoteIsX
-      ? finalAmountY + (config.management.gasReserve ?? 0.2)
-      : (config.management.gasReserve ?? 0.2);
+      ? finalAmountY + (config.management.gasReserve ?? 0.2) + RENT_BUFFER
+      : (config.management.gasReserve ?? 0.2) + RENT_BUFFER;
     if (preBalanceSol < neededSol) {
-      throw new Error(`Insufficient SOL balance: ${preBalanceSol.toFixed(4)} SOL available, need ${neededSol.toFixed(2)} SOL (gas reserve).`);
+      throw new Error(`Insufficient SOL balance: ${preBalanceSol.toFixed(4)} SOL available, need ${neededSol.toFixed(2)} SOL (gas reserve + rent buffer).`);
     }
     log("deploy", `Balance check passed: ${preBalanceSol.toFixed(4)} SOL ≥ ${neededSol.toFixed(2)} SOL needed`);
   }
@@ -1039,6 +1040,8 @@ export async function deployPosition({
 
   const wallet = getWallet();
   let newPosition = Keypair.generate();
+  let _wsolAta = null; // captured if wrapping happens, used for unwrap on failure
+  let _wsolAmount = null;
 
   // ─── Wrap native SOL → wSOL for one-sided deposits ────────────
   // The SDK's AddLiquidityByStrategy2 transfers wSOL (Tokenkeg), not native SOL.
@@ -1058,6 +1061,8 @@ export async function deployPosition({
           null,
           wallet.publicKey,
         );
+        _wsolAta = ataAddress;
+        _wsolAmount = wrapAmount;
         const wrapTx = new Transaction();
         if (createAtaIx) wrapTx.add(createAtaIx);
         wrapTx.add(
@@ -1245,7 +1250,91 @@ export async function deployPosition({
     };
   } catch (error) {
     log("deploy_error", error.message);
+    // Auto-unwrap WSOL jika deploy gagal SETELAH wrap SOL (WSOL nyangkut)
+    if (_wsolAta && _wsolAmount && _wsolAmount.gtn(0)) {
+      try {
+        const unwrapTx = new Transaction();
+        unwrapTx.add(
+          new TransactionInstruction({
+            programId: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+            keys: [
+              { pubkey: _wsolAta, isSigner: false, isWritable: true },
+              { pubkey: wallet.publicKey, isSigner: false, isWritable: true },
+              { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
+            ],
+            data: Buffer.from([9]),
+          })
+        );
+        const unwrapSig = await sendAndConfirmTransaction(getConnection(), unwrapTx, [wallet]);
+        log("deploy", `[WSOL] Unwrapped ${(_wsolAmount.toNumber() / 1e9)} SOL from stuck WSOL after deploy failure: ${unwrapSig}`);
+      } catch (unwrapErr) {
+        log("deploy_error", `[WSOL] Failed to unwrap stuck WSOL: ${unwrapErr.message}`);
+      }
+    }
     return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Unwrap stuck WSOL (wrapped SOL) back to native SOL by closing the WSOL ATA.
+ * Only closes if the ATA exists and has a positive balance (meaning WSOL is stuck/idle).
+ * Safe to call even when no WSOL is stuck — no-op if balance is 0 or ATA doesn't exist.
+ */
+export async function unwrapStuckWsol() {
+  if (process.env.DRY_RUN === "true") {
+    log("deploy", "[WSOL] DRY RUN — skipping WSOL unwrap");
+    return { unwrapped: 0 };
+  }
+  try {
+    const ATA_PROGRAM_ID = new PublicKey("ATokenGPvbgGVivhK9wSFfULjDEKQ8feBwSJ9QfTjGMK");
+    const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+    const SOL_MINT_ADDR = new PublicKey("So11111111111111111111111111111111111111112");
+
+    const wallet = getWallet();
+    const connection = getConnection();
+
+    // Derive WSOL ATA address
+    const [wsolAta] = await PublicKey.findProgramAddress(
+      [wallet.publicKey.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), SOL_MINT_ADDR.toBuffer()],
+      ATA_PROGRAM_ID
+    );
+
+    // Check if ATA exists and has balance
+    const ataInfo = await connection.getAccountInfo(wsolAta);
+    if (!ataInfo) {
+      log("deploy", "[WSOL] No WSOL ATA found — nothing to unwrap");
+      return { unwrapped: 0 };
+    }
+
+    const ataBalance = await connection.getTokenAccountBalance(wsolAta);
+    const balance = ataBalance?.value?.uiAmount ?? 0;
+    if (balance <= 0) {
+      log("deploy", "[WSOL] WSOL ATA balance is 0 — nothing to unwrap");
+      return { unwrapped: 0 };
+    }
+
+    log("deploy", `[WSOL] Found ${balance} stuck WSOL — closing ATA to unwrap`);
+
+    // Build closeAccount instruction (Token program instruction index 9)
+    const unwrapTx = new Transaction();
+    unwrapTx.add(
+      new TransactionInstruction({
+        programId: TOKEN_PROGRAM_ID,
+        keys: [
+          { pubkey: wsolAta, isSigner: false, isWritable: true },
+          { pubkey: wallet.publicKey, isSigner: false, isWritable: true },
+          { pubkey: wallet.publicKey, isSigner: true, isWritable: false },
+        ],
+        data: Buffer.from([9]),
+      })
+    );
+
+    const sig = await sendAndConfirmTransaction(connection, unwrapTx, [wallet]);
+    log("deploy", `[WSOL] Unwrapped ${balance} SOL → native: ${sig}`);
+    return { unwrapped: balance };
+  } catch (err) {
+    log("deploy_error", `[WSOL] Failed to unwrap stuck WSOL: ${err.message}`);
+    return { unwrapped: 0, error: err.message };
   }
 }
 
