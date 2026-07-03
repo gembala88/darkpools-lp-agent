@@ -138,13 +138,18 @@ function normalizeSymbol(symbol) {
 
 function scoreCandidate(pool) {
   if (Number.isFinite(Number(pool.gmgn_score))) {
-    return Number(pool.gmgn_score) + Number(pool.fee_active_tvl_ratio || 0) * 500;
+    return Number(pool.gmgn_score) + Number(pool.fee_active_tvl_ratio || 0) * 1000;
   }
   const feeTvl = Number(pool.fee_active_tvl_ratio || 0);
-  const organic = Number(pool.organic_score || 0);
   const volume = Number(pool.volume_window || 0);
+  const organic = Number(pool.organic_score || 0);
   const holders = Number(pool.holders || 0);
-  return feeTvl * 1000 + organic * 10 + volume / 100 + holders / 100;
+  const feeWindow = Number(pool.fee_window || 0);
+  const uniqueTraders = Number(pool.unique_traders || 0);
+  // fee_tvl ratio is the strongest predictor of LP profitability
+  // fee_window confirms actual fees earned in the window
+  // volume + unique_traders confirm genuine activity
+  return feeTvl * 20000 + feeWindow * 100 + volume / 10 + uniqueTraders * 20 + organic * 5 + holders / 200;
 }
 
 function numeric(value) {

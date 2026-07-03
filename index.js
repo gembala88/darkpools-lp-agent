@@ -1640,7 +1640,6 @@ function getLoneCandidateSkipReason({ pool, sw, n, ti } = {}) {
   if (Number.isFinite(botPct) && botPct > config.screening.maxBotHoldersPct) {
     return `bot holders ${botPct}% above maximum ${config.screening.maxBotHoldersPct}%`;
   }
-  if (!hasNarrative && smartWalletCount === 0) return "only candidate has no narrative and no smart-wallet confirmation";
   return null;
 }
 

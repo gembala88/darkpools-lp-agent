@@ -146,14 +146,15 @@ HARD RULE (no exceptions):
 RISK SIGNALS (guidelines — use judgment):
 - top10 > ${config.screening.maxTop10Pct}% → concentrated, risky
 - PVP symbol conflict (same exact symbol across multiple mints) → major negative. Avoid unless the setup is exceptional and clearly stronger than the competing symbol variants.
-- no narrative + no smart wallets → skip
-- If only one candidate is returned, do not deploy by default. Treat it as "maybe nothing is good enough"; deploy only if it still has a strong narrative, smart-wallet confirmation, and clean pool metrics.
+- no narrative + no smart wallets + weak fundamentals (low fee_tvl, low volume, low organic) → skip
+- If only one candidate is returned, evaluate it on its own merits. Strong fundamentals (high fee_tvl, volume, organic score) can justify deployment even without narrative or smart wallets.
 - ⚠️ DUMP TRAP PENALTY: If fee_tvl_ratio > 20 AND tvl < 200000 AND volatility > 4 → reduce conviction by 40 points. This is a dump trap — the high fee is from a single large dump, NOT organic LP returns. The fee will collapse after the dump completes.
 
 NARRATIVE QUALITY (your main judgment call):
 - GOOD: specific origin — real event, viral moment, named entity, active community
 - BAD: generic hype ("next 100x", "community token") with no identifiable subject
 - Smart wallets present → can override weak narrative
+- Strong fundamentals (high fee_tvl, high volume, good organic score) → can override absence of smart wallets
 
 POOL MEMORY: Past losses or problems → strong skip signal.
 
