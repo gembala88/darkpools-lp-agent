@@ -6,7 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { agentLoop } from "./agent.js";
 import { log } from "./logger.js";
-import { getMyPositions, closePosition } from "./tools/dlmm.js";
+import { getMyPositions, closePosition, unwrapStuckWsol } from "./tools/dlmm.js";
 import { getWalletBalances } from "./tools/wallet.js";
 import { getTopCandidates } from "./tools/screening.js";
 import { LPIntelligenceService } from "./dist/services/lpIntelligenceService.js";
@@ -765,6 +765,16 @@ export async function runScreeningCycle({ silent = false } = {}) {
     } else {
       // No profile set — use manual user-config.json thresholds
       log("cron", "No screening profile active — using manual config thresholds");
+    }
+
+    // Unwrap any stuck WSOL from previous failed deploys before starting new screening
+    try {
+      const unwrapResult = await unwrapStuckWsol();
+      if (unwrapResult.unwrapped > 0) {
+        notify(`🔓 [WSOL] Unwrapped ${unwrapResult.unwrapped} stuck WSOL → native SOL`, "info").catch(() => {});
+      }
+    } catch (e) {
+      log("cron", `[WSOL] Unwrap check failed (non-critical): ${e.message}`);
     }
 
     // Fetch top candidates, then recon each sequentially with a small delay to avoid 429s
