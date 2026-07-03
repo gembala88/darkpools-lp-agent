@@ -300,12 +300,16 @@ async function fetchDiscordSignalCandidates() {
   return Array.isArray(data?.candidates) ? data.candidates : [];
 }
 
-async function fetchPoolDiscoveryPage({ page_size, filters, timeframe, category, sortBy }) {
+async function fetchPoolDiscoveryPage({ page_size, filters, timeframe, category, sortBy, page }) {
   let url = `${POOL_DISCOVERY_BASE}/pools?` +
     `page_size=${page_size}` +
     `&filter_by=${encodeURIComponent(filters)}` +
     `&timeframe=${timeframe}` +
     `&category=${category}`;
+
+  if (page != null && page > 0) {
+    url += `&page=${page}`;
+  }
 
   if (sortBy) {
     url += `&sort_by=${encodeURIComponent(sortBy)}`;
@@ -1389,22 +1393,137 @@ async function enrichCandidates(pools, s) {
 }
 
 /**
+ * Discover blue-chip pools for Tier 2 fallback.
+ * Paginates through multiple pages since API returns ~10 per page,
+ * filters with higher TVL/volume thresholds, sort by fee_tvl:desc.
+ */
+async function discoverTier2Pools() {
+  const s = config.screening;
+  const t2MinTvl = Number(s.tier2MinTvl ?? 200_000);
+  const t2MaxTvl = s.tier2MaxTvl;
+  const t2MinVolume = Number(s.tier2MinVolume ?? 50_000);
+  const t2MinFeeTvl = Number(s.tier2MinFeeActiveTvlRatio ?? 0.01);
+  const maxPages = Number(s.tier2DiscoveryPages ?? 5);
+  const NO_MICIN_FLOOR = 15_000;
+
+  const filters = [
+    "pool_type=dlmm",
+    `tvl>${NO_MICIN_FLOOR}`,
+    `volume>${NO_MICIN_FLOOR}`,
+  ].filter(Boolean).join("&&");
+
+  const allPools = [];
+  for (let page = 1; page <= Math.min(maxPages, 10); page++) {
+    try {
+      const data = await fetchPoolDiscoveryPage({
+        page_size: 50,
+        filters,
+        timeframe: "24h",
+        category: "all",
+        sortBy: "fee_active_tvl_ratio:desc",
+        page,
+      });
+      const rawPools = Array.isArray(data.data) ? data.data : [];
+      log("screening", `[TIER2] page ${page}: ${rawPools.length} raw pools`);
+      allPools.push(...rawPools);
+      if (rawPools.length < 5) break; // no more pages
+    } catch (e) {
+      log("screening", `[TIER2] page ${page} failed: ${e.message}`);
+      break;
+    }
+  }
+
+  log("screening", `[TIER2] total raw: ${allPools.length} pools from ${maxPages} pages`);
+
+  // Filter to quote assets + apply Tier 2 thresholds + guards
+  const pools = allPools
+    .filter(p => {
+      const tx = p.token_x?.address || "";
+      const ty = p.token_y?.address || "";
+      return isQuoteMint(tx) || isQuoteMint(ty);
+    })
+    .filter(p => {
+      const tvl = Number(p.tvl || p.active_tvl || 0);
+      const vol = Number(p.volume || 0);
+      // NO MICIN: hard floor
+      if (tvl < NO_MICIN_FLOOR) return false;
+      // Tier 2 thresholds
+      if (tvl < t2MinTvl) return false;
+      if (t2MaxTvl != null && tvl > t2MaxTvl) return false;
+      if (vol < t2MinVolume) return false;
+      // Guard: fee_tvl_ratio > 50 means TVL is near 0 → reject
+      const ftr = Number(p.fee_active_tvl_ratio ?? p.fee_tvl_ratio ?? 0);
+      if (ftr > 50) return false;
+      return true;
+    })
+    .slice(0, 100)
+    .map(p => {
+      const tx = p.token_x?.address || "";
+      const ty = p.token_y?.address || "";
+      const isQuoteOnX = isQuoteMint(tx);
+      const isQuoteOnY = isQuoteMint(ty);
+      const quoteAddress = isQuoteOnX ? tx : (isQuoteOnY ? ty : tx);
+      const quoteSymbol = getQuoteSymbol(quoteAddress) || (isQuoteOnX ? p.token_x?.symbol : p.token_y?.symbol) || "?";
+      const base = isQuoteOnX ? p.token_y : p.token_x;
+      const baseSymbol = base?.symbol || (base?.address || "").slice(0, 4);
+      const feeTvl = resolveFeeTvlRatio(p, s.timeframe || "1h");
+      return {
+        pool: p.pool_address,
+        name: `${baseSymbol}-${quoteSymbol}`,
+        base: { symbol: baseSymbol, mint: base?.address, organic: p.base_token?.organic_score },
+        quote: { symbol: quoteSymbol, mint: quoteAddress },
+        pool_type: "dlmm",
+        bin_step: p.dlmm_bin_step ?? p.bin_step,
+        fee_pct: p.fee_pct,
+        tvl: p.tvl ?? p.active_tvl,
+        active_tvl: p.active_tvl ?? p.tvl,
+        fee_window: p.fee,
+        volume_window: p.volume,
+        fee_active_tvl_ratio: feeTvl,
+        volatility: p.volatility,
+        volatility_timeframe: p.volatility_timeframe,
+        holders: p.base_token?.holders ?? p.holders,
+        mcap: p.mcap ?? p.base_token?.market_cap,
+        token_age_hours: p.base_token?.age_hours ?? p.token_age_hours,
+        dev: p.base_token?.dev_address,
+        launchpad: p.base_token?.launchpad,
+        price: p.price,
+        price_change_pct: p.price_change_pct,
+        volume_change_pct: p.volume_change_pct,
+        fee_change_pct: p.fee_change_pct,
+        swap_count: p.swap_count,
+        unique_traders: p.unique_traders,
+        active_positions: p.active_positions,
+        active_pct: p.active_pct,
+        open_positions: p.open_positions,
+        verified_dlmm: true,
+      };
+    });
+
+  log("screening", `[TIER2] ${pools.length} pools after Tier 2 filters`);
+  return pools;
+}
+
+/**
  * Returns eligible pools for the agent to evaluate and pick from.
  * Hard filters applied in code, agent decides which to deploy into.
+ * tier=1: mid-market pools (existing, unchanged)
+ * tier=2: blue-chip fallback (higher TVL/volume, sort by fee_tvl)
  */
-export async function getTopCandidates({ limit = 10 } = {}) {
+export async function getTopCandidates({ limit = 10, tier = 1 } = {}) {
   const { config } = await import("../config.js");
 
   // Multi-source discovery: run all sources in parallel, merge by mint, deduplicate
-  const allPools = await discoverAll();
+  const isTier2 = tier === 2;
+  const allPools = isTier2 ? await discoverTier2Pools() : await discoverAll();
   let pools = [...allPools];
 
   // Apply volatility timeframe adjustment (1h/12h/24h fallback) so pools aren't rejected with 0 volatility
   pools = await applyVolatilityTimeframe(pools, config.screening.timeframe);
   const filteredOut = [];
 
-  log("discovery", `raw candidates per source (see individual [DISCOVERY] lines above)`);
-  log("discovery", `merged candidates=${allPools.length} deduplicated=${allPools.length} (duplicates already removed in merge)`);
+  const tierLabel = isTier2 ? "[TIER2]" : "[TIER1]";
+  log("discovery", `${tierLabel} raw candidates: ${pools.length}`);
 
   // Exclude pools where the wallet already has an open position
   const { getMyPositions } = await import("./dlmm.js");
@@ -1426,9 +1545,9 @@ export async function getTopCandidates({ limit = 10 } = {}) {
       }
     } catch (e) { /* non-critical */ }
   }
-  const minTvl = Number(config.screening.minTvl ?? 0);
-  const maxTvl = config.screening.maxTvl == null ? null : Number(config.screening.maxTvl);
-  const minFeeActiveTvlRatio = Number(config.screening.minFeeActiveTvlRatio ?? 0);
+  const minTvl = isTier2 ? Number(config.screening.tier2MinTvl ?? 200000) : Number(config.screening.minTvl ?? 0);
+  const maxTvl = isTier2 ? (config.screening.tier2MaxTvl == null ? null : Number(config.screening.tier2MaxTvl)) : (config.screening.maxTvl == null ? null : Number(config.screening.maxTvl));
+  const minFeeActiveTvlRatio = isTier2 ? Number(config.screening.tier2MinFeeActiveTvlRatio ?? 0.01) : Number(config.screening.minFeeActiveTvlRatio ?? 0);
 
   const eligible = pools
     .filter((p) => {
@@ -1588,6 +1707,7 @@ export async function getTopCandidates({ limit = 10 } = {}) {
   // Apply mcap/holders/volume filters using best available data (pool direct fields + enrichment)
   if (eligible.length > 0) {
     const s = config.screening;
+    const effectiveMinVolume = isTier2 ? Number(s.tier2MinVolume ?? 50000) : Number(s.minVolume ?? 500);
     const before = eligible.length;
     const filtered = [];
     for (const pool of eligible) {
@@ -1609,8 +1729,8 @@ export async function getTopCandidates({ limit = 10 } = {}) {
         pushFilteredReason(filteredOut, pool, `holders ${bestHolders} below minHolders ${s.minHolders}`);
         continue;
       }
-      if (bestVolume != null && bestVolume < s.minVolume) {
-        pushFilteredReason(filteredOut, pool, `volume ${bestVolume} below minVolume ${s.minVolume}`);
+      if (bestVolume != null && bestVolume < effectiveMinVolume) {
+        pushFilteredReason(filteredOut, pool, `volume ${bestVolume} below minVolume ${effectiveMinVolume}`);
         continue;
       }
 
@@ -1704,10 +1824,13 @@ export async function getTopCandidates({ limit = 10 } = {}) {
     }
   }
 
+  log("screening", `${tierLabel} final candidates: ${eligible.length} pools`);
+
   return {
     candidates: eligible,
     total_screened: allPools.length,
     source: "multi",
+    tier,
     filtered_examples: filteredOut.slice(0, 3),
     all_filtered: filteredOut,
   };

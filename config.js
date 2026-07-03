@@ -271,6 +271,13 @@ export const config = {
     // Activity thresholds — reject pools with no genuine trading activity (0 = disabled)
     minSwapCount:        u.minSwapCount        ?? 0,
     minUniqueTraders:    u.minUniqueTraders    ?? 0,
+    // Tier 2 (blue-chip fallback — active only when Tier 1 yields 0 candidates)
+    tier2Enabled:               u.tier2Enabled               ?? true,
+    tier2MinTvl:                u.tier2MinTvl                ?? 200_000,
+    tier2MaxTvl:                u.tier2MaxTvl                ?? null,
+    tier2MinVolume:             u.tier2MinVolume             ?? 50_000,
+    tier2MinFeeActiveTvlRatio:  u.tier2MinFeeActiveTvlRatio  ?? 0.01,
+    tier2DiscoveryPages:        u.tier2DiscoveryPages        ?? 5,
     // Volume-trend thresholds (nano-editable)
     volumeAccelRatio:     u.volumeAccelRatio    ?? 1.5,
     volumeDecelRatio:     u.volumeDecelRatio    ?? 0.5,

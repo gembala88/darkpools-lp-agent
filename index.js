@@ -768,21 +768,22 @@ export async function runScreeningCycle({ silent = false } = {}) {
     }
 
     // Fetch top candidates, then recon each sequentially with a small delay to avoid 429s
-    const topCandidates = await getTopCandidates({ limit: 10 }).catch((e) => ({ _error: e.message }));
+    let topCandidates = await getTopCandidates({ limit: 10 }).catch((e) => ({ _error: e.message }));
     if (topCandidates?._error) {
       screenReport = `Screening failed: ${topCandidates._error}`;
       return screenReport;
     }
-    const candidates = (topCandidates?.candidates || topCandidates?.pools || []).slice(0, 10);
-    const earlyFilteredExamples = topCandidates?.filtered_examples || [];
-    const gmgnStageCounts = topCandidates?.stage_counts ?? null;
-    const gmgnAllFiltered = topCandidates?.all_filtered ?? [];
+    let usedTier = topCandidates?.tier || 1;
+    let candidates = (topCandidates?.candidates || topCandidates?.pools || []).slice(0, 10);
+    let earlyFilteredExamples = topCandidates?.filtered_examples || [];
+    let gmgnStageCounts = topCandidates?.stage_counts ?? null;
+    let gmgnAllFiltered = topCandidates?.all_filtered ?? [];
 
     if (candidates.length > 0) {
       notify(`🔍 Screening: ${candidates.length} candidates found`, "info").catch(() => {});
     }
 
-    const allCandidates = [];
+    let allCandidates = [];
     for (const pool of candidates) {
       const mint = pool.base?.mint;
       const [smartWallets, narrative, tokenInfo] = await Promise.allSettled([
@@ -853,9 +854,9 @@ export async function runScreeningCycle({ silent = false } = {}) {
     }
 
     // Hard filters after token recon — block launchpads, excessive bot holders, and memory-cooldown pools
-    const filteredOut = [];
-    const memoryHistory = []; // poor-history lines for prompt injection
-    const passing = allCandidates.filter(({ pool, ti }) => {
+    let filteredOut = [];
+    let memoryHistory = []; // poor-history lines for prompt injection
+    let passing = allCandidates.filter(({ pool, ti }) => {
       if (pool.gmgn) return true;
       const launchpad = ti?.launchpad ?? null;
       if (launchpad && config.screening.allowedLaunchpads?.length > 0 && !config.screening.allowedLaunchpads.includes(launchpad)) {
@@ -891,6 +892,72 @@ export async function runScreeningCycle({ silent = false } = {}) {
       }
       return true;
     });
+
+    if (passing.length === 0) {
+      // ── Tier 2 fallback: jika Tier 1 kosong, coba blue-chip pools ──
+      if (usedTier === 1 && config.screening.tier2Enabled) {
+        log("screening", "[TIER2] Tier 1 empty — falling back to blue-chip pools (tier 2)");
+        notify("🔍 [TIER2] Tier 1 empty → falling back to blue-chip pools", "info").catch(() => {});
+        topCandidates = await getTopCandidates({ limit: 10, tier: 2 }).catch((e) => ({ _error: e.message }));
+        if (!topCandidates?._error) {
+          usedTier = 2;
+          candidates = (topCandidates?.candidates || []).slice(0, 10);
+          earlyFilteredExamples = topCandidates?.filtered_examples || [];
+          if (candidates.length > 0) {
+            notify(`🔍 [TIER2] ${candidates.length} blue-chip candidates found`, "info").catch(() => {});
+            allCandidates = [];
+            for (const pool of candidates) {
+              const mint = pool.base?.mint;
+              const [smartWallets, narrative, tokenInfo] = await Promise.allSettled([
+                checkSmartWalletsOnPool({ pool_address: pool.pool }),
+                mint ? getTokenNarrative({ mint }) : Promise.resolve(null),
+                mint ? getTokenInfo({ query: mint }) : Promise.resolve(null),
+              ]);
+              allCandidates.push({
+                pool,
+                sw: smartWallets.status === "fulfilled" ? smartWallets.value : null,
+                n: narrative.status === "fulfilled" ? narrative.value : null,
+                ti: tokenInfo.status === "fulfilled" ? tokenInfo.value?.results?.[0] : null,
+                mem: recallForPool(pool.pool),
+              });
+              await new Promise(r => setTimeout(r, 150));
+            }
+            // Re-run passing filter with Tier 2 candidates
+            filteredOut = [];
+            memoryHistory = [];
+            passing = allCandidates.filter(({ pool, ti }) => {
+              if (pool.gmgn) return true;
+              const launchpad = ti?.launchpad ?? null;
+              if (launchpad && config.screening.allowedLaunchpads?.length > 0 && !config.screening.allowedLaunchpads.includes(launchpad)) return false;
+              if (launchpad && config.screening.blockedLaunchpads.includes(launchpad)) return false;
+              const botPct = ti?.audit?.bot_holders_pct;
+              if (botPct != null && botPct > config.screening.maxBotHoldersPct) {
+                filteredOut.push({ name: pool.name, reason: `bot holders ${botPct}% > ${config.screening.maxBotHoldersPct}%` });
+                return false;
+              }
+              const pStats = poolStats[pool.pool];
+              const baseMint = pool.base?.mint || pool.base_mint;
+              const tStats = baseMint ? tokenStats[baseMint] : null;
+              const checkStats = pStats || tStats;
+              if (checkStats && checkStats.losses >= 3 && checkStats.total >= 3) {
+                const winRate = checkStats.wins / checkStats.total;
+                if (winRate < 0.3) {
+                  filteredOut.push({ name: pool.name, reason: `memory cooldown: ${checkStats.wins}W/${checkStats.losses}L historically` });
+                  memoryHistory.push(`AVOID — ${pool.name}: ${checkStats.wins}W/${checkStats.losses}L historically`);
+                  return false;
+                }
+              }
+              return true;
+            });
+            log("screening", `[TIER2] after pass filter: ${passing.length} pools`);
+            if (passing.length > 0) {
+              notify(`🔍 [TIER2] ${passing.length} pools passed safety filters → sending to LLM`, "info").catch(() => {});
+              // Do NOT return NO DEPLOY — continue to AI eval + agentLoop below
+            }
+          }
+        }
+      }
+    }
 
     if (passing.length === 0) {
       const combined = filteredOut.length > 0 ? filteredOut : earlyFilteredExamples;
@@ -1149,7 +1216,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
     }
 
     const { content } = await agentLoop(`
-SCREENING CYCLE
+SCREENING CYCLE${usedTier === 2 ? " [TIER2 — blue-chip fallback]" : ""}
     ${strategyBlock}
     ${laneLine}
     ${profileLine}
