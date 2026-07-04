@@ -1249,65 +1249,37 @@ export async function runScreeningCycle({ silent = false } = {}) {
 
     let content;
     if (isTier2 && passing.length > 0) {
-      // ── TIER 2: auto-deploy best pool (skip LLM, skip agentLoop) ──
-      const bestEntry = passing[0];
-      const pool = bestEntry.pool;
-      const autoAmount = computeDeployAmount(effectiveBalance.sol);
-      const autoBinsBelow = computeBinsBelow(pool.volatility);
-      log("screening", `[TIER2] Auto-deploying best pool: ${pool.name} (${autoAmount} SOL, ${autoBinsBelow} bins below)`);
-      notify(`🔍 [TIER2] Auto-deploying ${pool.name} (${autoAmount} SOL)`, "info").catch(() => {});
-      try {
-        const deployResult = await executeTool("deploy_position", {
-          pool_address: pool.pool,
-          amount_y: autoAmount,
-          strategy: config.strategy.strategy,
-          bins_below: autoBinsBelow,
-          bins_above: 0,
-          pool_name: pool.name,
-          base_mint: pool.base?.mint || pool.base_mint || null,
-          bin_step: pool.bin_step,
-          volatility: pool.volatility,
-          fee_tvl_ratio: pool.fee_active_tvl_ratio ?? pool.fee_tvl_ratio,
-          organic_score: pool.organic_score,
-          initial_value_usd: pool.tvl ?? pool.active_tvl ?? null,
-          lane: _resolvedLane,
-          deploy_source: "tier2_fallback",
-        });
-        deployAttempted = true;
-        deploySucceeded = Boolean(deployResult?.success !== false && !deployResult?.error && !deployResult?.blocked);
-        deployTxFailed = deployAttempted && !deploySucceeded && !deployResult?.blocked && !!deployResult?.error;
-        if (deploySucceeded) {
-          _lastDeployPool = deployResult?.pool_name || deployResult?.would_deploy?.pool_address || pool.pool || "unknown";
-          content = [
-            `🚀 DEPLOYED`,
-            ``,
-            `${pool.name}`,
-            `${pool.pool}`,
-            ``,
-            `◎ ${autoAmount} SOL | ${config.strategy.strategy} | bin ${pool.bin_step || '?'}`,
-            deployResult?.price_range ? `Range: ${deployResult.price_range.min} → ${deployResult.price_range.max}` : null,
-            deployResult?.range_coverage ? `Range cover: ${deployResult.range_coverage.downside_pct?.toFixed(2) ?? '?'}% downside | ${deployResult.range_coverage.upside_pct?.toFixed(2) ?? '?'}% upside | ${deployResult.range_coverage.width_pct?.toFixed(2) ?? '?'}% total` : null,
-            ``,
-            `MARKET`,
-            `Fee/TVL: ${(pool.fee_active_tvl_ratio ?? 0).toFixed(2)}%`,
-            `Volume: $${(pool.volume_window ?? 0).toLocaleString()}`,
-            `TVL: $${(pool.tvl ?? pool.active_tvl ?? 0).toLocaleString()}`,
-            `Volatility: ${pool.volatility ?? '?'}`,
-            `Mcap: $${(pool.mcap ?? 0).toLocaleString()}`,
-            `Age: ${pool.age ? Math.round(pool.age) + 'h' : '?'}`,
-            ``,
-            `[TIER2] Auto-deployed by fallback (no LLM)`,
-          ].filter(Boolean).join("\n");
-        } else {
-          const failReason = deployResult?.reason || deployResult?.error || "Unknown error";
-          content = `⛔ NO DEPLOY\n\n[TIER2] Auto-deploy failed: ${failReason}`;
-        }
-      } catch (e) {
-        log("deploy_error", `[TIER2] Auto-deploy threw: ${e.message}`);
-        deployAttempted = true;
-        deployTxFailed = true;
-        content = `⛔ NO DEPLOY\n\n[TIER2] Auto-deploy threw: ${e.message}`;
-      }
+      // ── TIER 2: LLM evaluates top candidate, quick decision (maxSteps=3) ──
+      const tier2Prompt = `[TIER2 BLUE-CHIP FALLBACK]
+Quick decision needed. Top candidate below — evaluate and either deploy or skip.
+
+${candidateBlocks.slice(0, 2).join("\n\n")}
+
+STEPS:
+1. Evaluate the pool above. If fundamentals are solid (fee/TVL, volume, TVL), deploy via deploy_position.
+2. strategy = ${config.strategy.strategy} (always use this).
+   bins_below = computed from volatility — pass the candidate volatility value.
+   bins_above = 0, single-side SOL only (amount_y, amount_x=0).
+3. If deploying, report in the exact 🚀 DEPLOYED format with MARKET + AUDIT sections.
+4. If not worth deploying, report ⛔ NO DEPLOY with reason.`;
+      const tier2Result = await agentLoop(tier2Prompt, 3, [], "SCREENER", config.llm.screeningModel, 2048, {
+        onToolStart: async ({ name, step }) => {
+          if (name === "deploy_position") deployAttempted = true;
+          await liveMessage?.toolStart(name, { currentStep: (step ?? 0) + 1, totalSteps: 3 });
+        },
+        onToolFinish: async ({ name, result, success, args }) => {
+          if (name === "deploy_position") {
+            deployAttempted = true;
+            deploySucceeded = Boolean(success && result?.success !== false && !result?.error && !result?.blocked);
+            if (deploySucceeded) {
+              _lastDeployPool = result?.pool_name || result?.would_deploy?.pool_address || args?.pool_address || "unknown";
+            }
+            deployTxFailed = deployAttempted && !deploySucceeded && !result?.blocked && !!result?.error;
+          }
+          await liveMessage?.toolFinish(name, result, success);
+        },
+      });
+      content = tier2Result.content;
     } else {
       const agentResult = await agentLoop(`
 SCREENING CYCLE${isTier2 ? " [TIER2]" : ""}
