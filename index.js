@@ -794,7 +794,6 @@ export async function runScreeningCycle({ silent = false } = {}) {
       if (isTier2) {
         if (!config.screening.tier2Enabled) break;
         log("screening", "[TIER2] Tier 1 no-deploy — falling back to blue-chip pools");
-        notify("🔍 [TIER2] Tier 1 no-deploy → falling back to blue-chip pools", "info").catch(() => {});
       }
 
       // Fetch top candidates, then recon each sequentially with a small delay to avoid 429s
@@ -809,8 +808,11 @@ export async function runScreeningCycle({ silent = false } = {}) {
       let gmgnAllFiltered = topCandidates?.all_filtered ?? [];
 
       if (candidates.length > 0) {
-        const label = isTier2 ? "[TIER2]" : "";
-        notify(`🔍 ${label} ${candidates.length} candidates found`, "info").catch(() => {});
+        if (isTier2) {
+          log("screening", `[TIER2] ${candidates.length} blue-chip candidates found`);
+        } else {
+          notify(`🔍 ${candidates.length} candidates found`, "info").catch(() => {});
+        }
       }
 
       let allCandidates = [];
@@ -1392,7 +1394,10 @@ IMPORTANT:
         reason: stripThink(content).slice(0, 500),
       });
       _lastDecision = { decision: "NO_DEPLOY", pool: null, reason: "LLM chose not to deploy", time: new Date().toISOString(), lane: _resolvedLane };
-      notify("⛔ NO DEPLOY: LLM chose not to deploy any pool", "info").catch(() => {});
+      // Skip intermediate notify if Tier 2 will run — final combined report covers both
+      if (isTier2 || !config.screening.tier2Enabled) {
+        notify("⛔ NO DEPLOY: LLM chose not to deploy any pool", "info").catch(() => {});
+      }
     } else if (deployAttempted) {
       appendDecision({
         type: "no_deploy",
@@ -1401,7 +1406,9 @@ IMPORTANT:
         reason: stripThink(content).slice(0, 500),
       });
       _lastDecision = { decision: "DEPLOY_FAILED", pool: null, reason: "Deploy attempt did not succeed", time: new Date().toISOString(), lane: _resolvedLane };
-      notify("⛔ NO DEPLOY: Deploy attempt did not succeed", "info").catch(() => {});
+      if (isTier2 || !config.screening.tier2Enabled) {
+        notify("⛔ NO DEPLOY: Deploy attempt did not succeed", "info").catch(() => {});
+      }
     } else {
       appendDecision({
         type: "no_deploy",
