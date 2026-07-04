@@ -952,39 +952,48 @@ export async function deployPosition({
         }),
       });
 
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-      _positionsCacheAt = 0;
-      const refreshed = await getMyPositions({ force: true, silent: true }).catch(() => null);
-      const matching = refreshed?.positions?.find(
-        (position) => position.pool === pool_address && position.lower_bin === minBinId && position.upper_bin === maxBinId,
-      ) || refreshed?.positions?.find((position) => position.pool === pool_address);
-
-      const positionAddress = matching?.position || null;
-      if (positionAddress) {
-        const signalSnapshot = config.darwin?.enabled
-          ? getAndClearStagedSignals(pool_address, baseMint)
-          : null;
-        trackPosition({
-          position: positionAddress,
-          pool: pool_address,
-          pool_name,
-          strategy: activeStrategy,
-          bin_range: { min: minBinId, max: maxBinId, bins_below: activeBinsBelow, bins_above: activeBinsAbove },
-          bin_step,
-          volatility: normalizedVolatility,
-          fee_tvl_ratio,
-          organic_score,
-          amount_sol: finalAmountY,
-          amount_x: finalAmountX,
-          active_bin: activeBin.binId,
-          initial_value_usd,
-          signal_snapshot: signalSnapshot,
-          entry_mcap,
-          entry_tvl,
-          entry_volume,
-          entry_holders,
-        });
+      // Verify position exists on-chain with retry
+      let positionAddress = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        _positionsCacheAt = 0;
+        const refreshed = await getMyPositions({ force: true, silent: true }).catch(() => null);
+        const matching = refreshed?.positions?.find(
+          (position) => position.pool === pool_address && position.lower_bin === minBinId && position.upper_bin === maxBinId,
+        ) || refreshed?.positions?.find((position) => position.pool === pool_address);
+        positionAddress = matching?.position || null;
+        if (positionAddress) break;
+        log("deploy", `Relay position not found yet (attempt ${attempt + 1}/3)`);
       }
+
+      if (!positionAddress) {
+        log("deploy_error", `Relay deploy submission accepted but position not confirmed on-chain for ${pool_address.slice(0, 8)}`);
+        return { success: false, error: "Position not confirmed on-chain after relay deploy — transaction may have failed after submission." };
+      }
+
+      const signalSnapshot = config.darwin?.enabled
+        ? getAndClearStagedSignals(pool_address, baseMint)
+        : null;
+      trackPosition({
+        position: positionAddress,
+        pool: pool_address,
+        pool_name,
+        strategy: activeStrategy,
+        bin_range: { min: minBinId, max: maxBinId, bins_below: activeBinsBelow, bins_above: activeBinsAbove },
+        bin_step,
+        volatility: normalizedVolatility,
+        fee_tvl_ratio,
+        organic_score,
+        amount_sol: finalAmountY,
+        amount_x: finalAmountX,
+        active_bin: activeBin.binId,
+        initial_value_usd,
+        signal_snapshot: signalSnapshot,
+        entry_mcap,
+        entry_tvl,
+        entry_volume,
+        entry_holders,
+      });
 
       appendDecision({
         type: "deploy",

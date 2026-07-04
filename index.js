@@ -777,24 +777,42 @@ export async function runScreeningCycle({ silent = false } = {}) {
       log("cron", `[WSOL] Unwrap check failed (non-critical): ${e.message}`);
     }
 
-    // Fetch top candidates, then recon each sequentially with a small delay to avoid 429s
-    let topCandidates = await getTopCandidates({ limit: 10 }).catch((e) => ({ _error: e.message }));
-    if (topCandidates?._error) {
-      screenReport = `Screening failed: ${topCandidates._error}`;
-      return screenReport;
-    }
-    let usedTier = topCandidates?.tier || 1;
-    let candidates = (topCandidates?.candidates || topCandidates?.pools || []).slice(0, 10);
-    let earlyFilteredExamples = topCandidates?.filtered_examples || [];
-    let gmgnStageCounts = topCandidates?.stage_counts ?? null;
-    let gmgnAllFiltered = topCandidates?.all_filtered ?? [];
+    // ── Tiered screening loop: Tier 1 → if no-deploy → Tier 2 ──
+    let usedTier = 1;
+    let deployAttempted = false;
+    let deploySucceeded = false;
+    let _lastDeployPool = null;
+    let tier1ScreenReport = null;
+    while (true) {
+      const isTier2 = usedTier === 2;
+      deployAttempted = false;
+      deploySucceeded = false;
+      _lastDeployPool = null;
 
-    if (candidates.length > 0) {
-      notify(`🔍 Screening: ${candidates.length} candidates found`, "info").catch(() => {});
-    }
+      if (isTier2) {
+        if (!config.screening.tier2Enabled) break;
+        log("screening", "[TIER2] Tier 1 no-deploy — falling back to blue-chip pools");
+        notify("🔍 [TIER2] Tier 1 no-deploy → falling back to blue-chip pools", "info").catch(() => {});
+      }
 
-    let allCandidates = [];
-    for (const pool of candidates) {
+      // Fetch top candidates, then recon each sequentially with a small delay to avoid 429s
+      let topCandidates = await getTopCandidates({ limit: 10, tier: usedTier }).catch((e) => ({ _error: e.message }));
+      if (topCandidates?._error) {
+        screenReport = `Screening failed: ${topCandidates._error}`;
+  return tier1ScreenReport ? `[TIER 1 — NO DEPLOY]\n${tier1ScreenReport}\n\n[TIER 2 — NO DEPLOY]\n${screenReport}` : screenReport;
+      }
+      let candidates = (topCandidates?.candidates || topCandidates?.pools || []).slice(0, 10);
+      let earlyFilteredExamples = topCandidates?.filtered_examples || [];
+      let gmgnStageCounts = topCandidates?.stage_counts ?? null;
+      let gmgnAllFiltered = topCandidates?.all_filtered ?? [];
+
+      if (candidates.length > 0) {
+        const label = isTier2 ? "[TIER2]" : "";
+        notify(`🔍 ${label} ${candidates.length} candidates found`, "info").catch(() => {});
+      }
+
+      let allCandidates = [];
+      for (const pool of candidates) {
       const mint = pool.base?.mint;
       const [smartWallets, narrative, tokenInfo] = await Promise.allSettled([
         checkSmartWalletsOnPool({ pool_address: pool.pool }),
@@ -1028,7 +1046,12 @@ export async function runScreeningCycle({ silent = false } = {}) {
         });
         _lastDecision = { decision: "SKIP", pool: candidateName, reason: skipReason, time: new Date().toISOString(), lane: _resolvedLane };
         notify("⛔ NO DEPLOY\nBest: " + candidateName + "\nReason: " + skipReason, "info").catch(() => {});
-        return screenReport;
+        if (!isTier2 && config.screening.tier2Enabled) {
+          tier1ScreenReport = screenReport;
+          usedTier = 2;
+          continue;
+        }
+        break;
       }
     }
 
@@ -1137,9 +1160,6 @@ export async function runScreeningCycle({ silent = false } = {}) {
 
     const weightsSummary = config.darwin?.enabled ? getWeightsSummary() : null;
 
-    let deployAttempted = false;
-    let deploySucceeded = false;
-    let _lastDeployPool = null;
     const laneLabel = _resolvedLane.charAt(0).toUpperCase() + _resolvedLane.slice(1);
     const laneLine = `Active lane: ${laneLabel} (minLpAlphaScore=${effectiveMinAlpha}, maxPositions=${config.risk.maxPositions})`;
     const profileLine = `Profile: ${getProfileDisplayLabel()} (timeframe=${config.screening.timeframe}, minTvl=$${config.screening.minTvl}, minVolume=$${config.screening.minVolume})`;
@@ -1351,6 +1371,17 @@ IMPORTANT:
       });
       _lastDecision = { decision: "NO_DEPLOY", pool: null, reason: "No successful deploy", time: new Date().toISOString(), lane: _resolvedLane };
     }
+
+      // ── Loop control: done? → break; technical error → break; else try Tier 2 ──
+      if (deploySucceeded) break;
+      if (deployAttempted) break; // deploy attempted but failed → technical error, not pool quality
+      if (!isTier2 && config.screening.tier2Enabled) {
+        tier1ScreenReport = screenReport;
+        usedTier = 2;
+        continue;
+      }
+      break; // Tier 2 also no-deploy (or tier2 disabled)
+    } // end while(true)
 
   } catch (error) {
     log("cron_error", `Screening cycle failed: ${error.message}`);
