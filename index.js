@@ -1251,23 +1251,23 @@ export async function runScreeningCycle({ silent = false } = {}) {
 
     let content;
     if (isTier2 && passing.length > 0) {
-      // ── TIER 2: LLM evaluates top candidate, quick decision (maxSteps=3) ──
+      // ── TIER 2: LLM evaluates top candidate (maxSteps=5) ──
       const tier2Prompt = `[TIER2 BLUE-CHIP FALLBACK]
-Quick decision needed. Top candidate below — evaluate and either deploy or skip.
+Top candidate below — decide to deploy or skip.
 
 ${candidateBlocks.slice(0, 2).join("\n\n")}
 
 STEPS:
-1. Evaluate the pool above. If fundamentals are solid (fee/TVL, volume, TVL), deploy via deploy_position.
-2. strategy = ${config.strategy.strategy} (always use this).
+1. Evaluate the pool above. If fundamentals are solid, call deploy_position.
+   strategy = ${config.strategy.strategy} (always use this).
    bins_below = computed from volatility — pass the candidate volatility value.
    bins_above = 0, single-side SOL only (amount_y, amount_x=0).
-3. If deploying, report in the exact 🚀 DEPLOYED format with MARKET + AUDIT sections.
-4. If not worth deploying, report ⛔ NO DEPLOY with reason.`;
-      const tier2Result = await agentLoop(tier2Prompt, 3, [], "SCREENER", config.llm.screeningModel, 2048, {
+2. If deploying, report in the exact 🚀 DEPLOYED format with MARKET + AUDIT sections.
+3. If not worth deploying, report ⛔ NO DEPLOY with reason.`;
+      const tier2Result = await agentLoop(tier2Prompt, 5, [], "SCREENER", config.llm.screeningModel, 2048, {
         onToolStart: async ({ name, step }) => {
           if (name === "deploy_position") deployAttempted = true;
-          await liveMessage?.toolStart(name, { currentStep: (step ?? 0) + 1, totalSteps: 3 });
+          await liveMessage?.toolStart(name, { currentStep: (step ?? 0) + 1, totalSteps: 5 });
         },
         onToolFinish: async ({ name, result, success, args }) => {
           if (name === "deploy_position") {
