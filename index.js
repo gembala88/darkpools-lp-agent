@@ -781,12 +781,14 @@ export async function runScreeningCycle({ silent = false } = {}) {
     let usedTier = 1;
     let deployAttempted = false;
     let deploySucceeded = false;
+    let deployTxFailed = false;
     let _lastDeployPool = null;
     let tier1ScreenReport = null;
     while (true) {
       const isTier2 = usedTier === 2;
       deployAttempted = false;
       deploySucceeded = false;
+      deployTxFailed = false;
       _lastDeployPool = null;
 
       if (isTier2) {
@@ -1328,6 +1330,8 @@ IMPORTANT:
             if (deploySucceeded) {
               _lastDeployPool = result?.pool_name || result?.would_deploy?.pool_address || args?.pool_address || "unknown";
             }
+            // True on-chain tx failure: safety block → blocked, on-chain fail → error
+            deployTxFailed = deployAttempted && !deploySucceeded && !result?.blocked && !!result?.error;
           }
           await liveMessage?.toolFinish(name, result, success);
         },
@@ -1372,9 +1376,9 @@ IMPORTANT:
       _lastDecision = { decision: "NO_DEPLOY", pool: null, reason: "No successful deploy", time: new Date().toISOString(), lane: _resolvedLane };
     }
 
-      // ── Loop control: done? → break; technical error → break; else try Tier 2 ──
+      // ── Loop control: done → break; on-chain tx failed → break; else try Tier 2 ──
       if (deploySucceeded) break;
-      if (deployAttempted) break; // deploy attempted but failed → technical error, not pool quality
+      if (deployTxFailed) break; // on-chain tx failure (insufficient lamports, custom program error) → stop, no Tier 2
       if (!isTier2 && config.screening.tier2Enabled) {
         tier1ScreenReport = screenReport;
         usedTier = 2;
