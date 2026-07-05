@@ -437,6 +437,24 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
 
   if (changed) save(state);
 
+  // ── TVL-drop emergency exit (rug-pull protection) ──────────────
+  // Triggers when pool TVL drops significantly from entry value, indicating
+  // whale LP removal or rug. Runs BEFORE stop-loss to catch fast drops that
+  // PnL lag misses.
+  const currentTvl = positionData.pool_tvl;
+  const entryTvl = pos.entry_tvl;
+  const tvlDropPct = mgmtConfig.tvlDropExitPct ?? 40;
+  if (entryTvl != null && currentTvl != null && entryTvl > 0 && currentTvl > 0) {
+    const dropPct = ((entryTvl - currentTvl) / entryTvl) * 100;
+    if (dropPct >= tvlDropPct) {
+      log("state", `[TVL-DROP] ${positionData.pair || position_address} TVL turun ${dropPct.toFixed(1)}% (entry $${entryTvl.toFixed(0)} → now $${currentTvl.toFixed(0)}, threshold ${tvlDropPct}%) — emergency close`);
+      return {
+        action: "STOP_LOSS",
+        reason: `TVL drop / possible rug: TVL turun ${dropPct.toFixed(1)}% dari entry ($${entryTvl.toFixed(0)} → $${currentTvl.toFixed(0)}, threshold ${tvlDropPct}%)`,
+      };
+    }
+  }
+
   // ── Stop loss ──────────────────────────────────────────────────
   if (!pnl_pct_suspicious && currentPnlPct != null && mgmtConfig.stopLossPct != null && currentPnlPct <= mgmtConfig.stopLossPct) {
     return {

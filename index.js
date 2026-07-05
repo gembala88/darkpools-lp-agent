@@ -1626,7 +1626,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
         log("cron_error", `[auto-sweep] failed: ${e.message}`);
       }).finally(() => { _sweepRunning = false; });
     }
-  }, 30_000);
+  }, Math.max(5000, (config.schedule.pnlPollSec ?? 10) * 1000));
 
   _cronTasks = [mgmtTask, screenTask, healthTask, briefingTask, briefingWatchdog];
   // Store interval ref so stopCronJobs can clear it

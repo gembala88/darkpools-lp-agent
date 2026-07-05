@@ -359,6 +359,7 @@ export const config = {
     minLpOwners:           u.minLpOwners           ?? 3,
     screeningRejectCooldownHours: u.screeningRejectCooldownHours ?? 1,
     stopLossPct:           u.stopLossPct           ?? u.emergencyPriceDropPct ?? -50,
+    tvlDropExitPct:        u.tvlDropExitPct        ?? 40,
     takeProfitPct:         u.takeProfitPct         ?? u.takeProfitFeePct ?? 8,
     minFeePerTvl24h:       u.minFeePerTvl24h       ?? 7,
     minAgeBeforeYieldCheck: u.minAgeBeforeYieldCheck ?? 60, // minutes before low yield can trigger close
@@ -400,6 +401,7 @@ export const config = {
 
   // ─── Scheduling ─────────────────────────
   schedule: {
+    pnlPollSec:             u.pnlPollSec             ?? 10,
     managementIntervalMin:  u.managementIntervalMin  ?? 10,
     screeningIntervalMin:   u.screeningIntervalMin   ?? 30,
     healthCheckIntervalMin: u.healthCheckIntervalMin ?? 60,
