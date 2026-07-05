@@ -645,6 +645,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
   let prePositions, preBalance;
   let liveMessage = null;
   let screenReport = null;
+  let _screeningCombinedReport = null;
   try {
     [prePositions, preBalance] = await Promise.all([getMyPositions({ force: true }), getWalletBalances()]);
     const isDryRun = process.env.DRY_RUN === "true";
@@ -831,6 +832,25 @@ export async function runScreeningCycle({ silent = false } = {}) {
         mem: recallForPool(pool.pool),
       });
       await new Promise(r => setTimeout(r, 150)); // avoid 429s
+    }
+
+    // ── Filter out pools already in active positions (state.js, belt-and-suspenders) ──
+    const trackedPositions = getTrackedPositions(true);
+    if (trackedPositions.length > 0) {
+      const occupiedPools = new Set(trackedPositions.map(p => p.pool).filter(Boolean));
+      if (occupiedPools.size > 0) {
+        const before = allCandidates.length;
+        allCandidates = allCandidates.filter(({ pool }) => {
+          if (occupiedPools.has(pool.pool)) {
+            log("screening", `Skipping ${pool.name || pool.pool} — already have active position in this pool (state.js)`);
+            return false;
+          }
+          return true;
+        });
+        if (allCandidates.length < before) {
+          log("screening", `State-based duplicate filter removed ${before - allCandidates.length} candidate(s) already in active positions`);
+        }
+      }
     }
 
     // ── Load deployment memory for per-pool/token historical win/loss stats ──
@@ -1430,6 +1450,11 @@ IMPORTANT:
       break; // Tier 2 also no-deploy (or tier2 disabled)
     } // end while(true)
 
+    // Compute combined report before catch/finally (tier1ScreenReport/deploySucceeded not visible in finally)
+    _screeningCombinedReport = (tier1ScreenReport && !deploySucceeded)
+      ? `[TIER 1 — NO DEPLOY]\n${tier1ScreenReport}\n\n[TIER 2 — NO DEPLOY]\n${screenReport}`
+      : screenReport;
+
   } catch (error) {
     log("cron_error", `Screening cycle failed: ${error.message}`);
     screenReport = `Screening cycle failed: ${error.message}`;
@@ -1438,14 +1463,14 @@ IMPORTANT:
     _screeningBusy = false;
     drainTelegramQueue().catch(() => {});
     if (!silent && telegramEnabled()) {
-      const safeReport = screenReport || "⛔ NO DEPLOY\n\nScreening cycle produced no report.";
+      const safeReport = _screeningCombinedReport || screenReport || "⛔ NO DEPLOY\n\nScreening cycle produced no report.";
       const reportText = `🔍 Screening Cycle\n\n${stripThink(safeReport)}`;
       if (liveMessage) await liveMessage.finalize(reportText).catch(() => {});
       else sendMessage(reportText).catch(() => { });
       sendToChannel(reportText).catch(() => {});
     }
   }
-  return screenReport;
+  return _screeningCombinedReport || screenReport;
 }
 
 export function startCronJobs() {
