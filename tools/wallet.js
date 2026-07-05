@@ -272,6 +272,7 @@ export async function swapToken({
     }
 
     const { transaction: unsignedTx, requestId } = order;
+    log("swap", `quote: impact=${order.priceImpactPct ?? "?"}% in=${order.inAmount ?? "?"} out=${order.outAmount ?? "?"}`);
 
     // ─── Deserialize and sign ─────────────────────────────────
     const tx = VersionedTransaction.deserialize(Buffer.from(unsignedTx, "base64"));
