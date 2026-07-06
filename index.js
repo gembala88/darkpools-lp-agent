@@ -15,7 +15,7 @@ import { formatGmgnCandidateForPrompt } from "./tools/gmgn.js";
 import { config, reloadScreeningThresholds, computeDeployAmount, lanesConfig, activeLaneSetting, updateActiveLaneSetting, screeningContext, autoSelectProfile, applyProfileToConfig, getActiveProfileName, SCREENING_PROFILES, setActiveProfile, activeProfile, getProfileDisplayLabel, isProfileActive } from "./config.js";
 import { engines } from "./dist/engines/index.js";
 import { evolveThresholds, getPerformanceSummary } from "./lessons.js";
-import { executeTool, registerCronRestarter, sweepStuckTokens, recordLivePnl } from "./tools/executor.js";
+import { executeTool, registerCronRestarter, sweepStuckTokens, recordLivePnl, resetDeployCircuitBreaker } from "./tools/executor.js";
 import {
   startPolling,
   stopPolling,
@@ -640,6 +640,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
   }
   _screeningBusy = true; // set immediately — prevents TOCTOU race with concurrent callers
   _screeningLastTriggered = Date.now();
+  resetDeployCircuitBreaker(); // prevent cross-cycle circuit breaker lock
 
   // Hard guards — don't even run the agent if preconditions aren't met
   let prePositions, preBalance;
