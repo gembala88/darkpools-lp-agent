@@ -415,6 +415,15 @@ export function evolveThresholds(perfData, config) {
     try { userConfig = JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8")); } catch { /* ignore */ }
   }
 
+  // Remove any evolved field that the user explicitly set — don't overwrite manual config
+  for (const key of Object.keys(changes)) {
+    if (key in userConfig) {
+      delete changes[key];
+      delete rationale[key];
+    }
+  }
+  if (Object.keys(changes).length === 0) return { changes: {}, rationale: {} };
+
   Object.assign(userConfig, changes);
   userConfig._lastEvolved = new Date().toISOString();
   userConfig._positionsAtEvolution = perfData.length;
