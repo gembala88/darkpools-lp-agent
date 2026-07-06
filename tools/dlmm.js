@@ -890,11 +890,12 @@ export async function deployPosition({
     const balance = await getConnection().getBalance(walletLocal.publicKey);
     preBalanceSol = balance / 1e9;
     const RENT_BUFFER = 0.01;
-    const neededSol = isSingleSided && !quoteIsY && !quoteIsX
+    const solAsDeposit = isSingleSided && quoteIsY;
+    const neededSol = solAsDeposit
       ? finalAmountY + (config.management.gasReserve ?? 0.2) + RENT_BUFFER
       : (config.management.gasReserve ?? 0.2) + RENT_BUFFER;
     if (preBalanceSol < neededSol) {
-      const msg = `Insufficient SOL balance: ${preBalanceSol.toFixed(4)} SOL available, need ${neededSol.toFixed(2)} SOL (gas reserve + rent buffer).`;
+      const msg = `Insufficient SOL balance: ${preBalanceSol.toFixed(4)} SOL available, need ${neededSol.toFixed(2)} SOL (${solAsDeposit ? "deploy amount + " : ""}gas reserve + rent buffer).`;
       log("deploy_error", msg);
       throw new Error(msg);
     }
