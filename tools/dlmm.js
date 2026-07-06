@@ -894,7 +894,9 @@ export async function deployPosition({
       ? finalAmountY + (config.management.gasReserve ?? 0.2) + RENT_BUFFER
       : (config.management.gasReserve ?? 0.2) + RENT_BUFFER;
     if (preBalanceSol < neededSol) {
-      throw new Error(`Insufficient SOL balance: ${preBalanceSol.toFixed(4)} SOL available, need ${neededSol.toFixed(2)} SOL (gas reserve + rent buffer).`);
+      const msg = `Insufficient SOL balance: ${preBalanceSol.toFixed(4)} SOL available, need ${neededSol.toFixed(2)} SOL (gas reserve + rent buffer).`;
+      log("deploy_error", msg);
+      throw new Error(msg);
     }
     log("deploy", `Balance check passed: ${preBalanceSol.toFixed(4)} SOL ≥ ${neededSol.toFixed(2)} SOL needed`);
   }
