@@ -1049,53 +1049,8 @@ export async function deployPosition({
 
   const wallet = getWallet();
   let newPosition = Keypair.generate();
-  let _wsolAta = null; // captured if wrapping happens, used for unwrap on failure
+  let _wsolAta = null;
   let _wsolAmount = null;
-
-  // ─── Wrap native SOL → wSOL for one-sided deposits ────────────
-  // The SDK's AddLiquidityByStrategy2 transfers wSOL (Tokenkeg), not native SOL.
-  // If we skip wrapping, the wallet has 0 wSOL → Token program error 0x1 (InsufficientFunds).
-  // Wraps whichever side (X or Y) has the SOL lamports after potential side flip.
-  if (process.env.DRY_RUN !== "true" && isSingleSidedSol) {
-    const wrapAmount = totalXLamports.gtn(0) ? totalXLamports : totalYLamports;
-    if (wrapAmount.gtn(0)) {
-      const wrapStart = Date.now();
-      log("deploy", `Wrapping ${(wrapAmount.toNumber() / 1e9)} SOL → wSOL before SDK call...`);
-      try {
-        const { getOrCreateATAInstruction } = await import("@meteora-ag/dlmm");
-        const { ix: createAtaIx, ataPubKey: ataAddress } = await getOrCreateATAInstruction(
-          getConnection(),
-          new PublicKey(SOL_MINT),
-          wallet.publicKey,
-          null,
-          wallet.publicKey,
-        );
-        _wsolAta = ataAddress;
-        _wsolAmount = wrapAmount;
-        const wrapTx = new Transaction();
-        if (createAtaIx) wrapTx.add(createAtaIx);
-        wrapTx.add(
-          SystemProgram.transfer({
-            fromPubkey: wallet.publicKey,
-            toPubkey: ataAddress,
-            lamports: wrapAmount.toNumber(),
-          })
-        );
-        wrapTx.add(
-          new TransactionInstruction({
-            programId: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
-            keys: [{ pubkey: ataAddress, isSigner: false, isWritable: true }],
-            data: Buffer.from([17]),
-          })
-        );
-        const sig = await sendAndConfirmTransaction(getConnection(), wrapTx, [wallet]);
-        log("deploy", `SOL wrapped → wSOL: ${sig} (${Date.now() - wrapStart}ms)`);
-      } catch (wrapErr) {
-        log("deploy_error", `SOL wrapping failed: ${wrapErr.message}`);
-        return { success: false, error: `SOL → wSOL wrapping failed: ${wrapErr.message}` };
-      }
-    }
-  }
 
   log("deploy", `Pool: ${pool_address}`);
   log("deploy", `Strategy: ${activeStrategy}, Bins: ${minBinId} to ${maxBinId} (${totalBins} bins${isWideRange ? " — WIDE RANGE" : ""})`);
