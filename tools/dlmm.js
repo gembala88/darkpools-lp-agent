@@ -1563,6 +1563,20 @@ async function fetchRawOpenPositionsFromMeridian({ walletAddress, agentId }) {
   };
 }
 
+const METEORA_DLMM_API = "https://dlmm.datapi.meteora.ag";
+
+async function fetchPoolTvl(poolAddress) {
+  try {
+    const url = `${METEORA_DLMM_API}/pools/${poolAddress}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.tvl ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Get My Positions ──────────────────────────────────────────
 export async function getMyPositions({ force = false, silent = false, wallet_address = null } = {}) {
   let walletOverride = null;
@@ -1612,6 +1626,16 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
 
     const pools = portfolio.pools || [];
     log("positions", `Found ${pools.length} pool(s) with open positions`);
+
+    // Fetch TVL for all unique pools in parallel (no cache — rug detection priority)
+    const uniquePoolAddrs = [...new Set(pools.map(p => p.poolAddress).filter(Boolean))];
+    const tvlResults = await Promise.allSettled(uniquePoolAddrs.map(fetchPoolTvl));
+    const tvlByPool = {};
+    uniquePoolAddrs.forEach((addr, i) => {
+      if (tvlResults[i].status === "fulfilled" && tvlResults[i].value != null) {
+        tvlByPool[addr] = tvlResults[i].value;
+      }
+    });
 
     // Fetch bin data (lowerBinId, upperBinId, poolActiveBinId) for all pools in parallel
     // Needed for rules 3 & 4 (active_bin vs upper_bin comparison)
@@ -1664,7 +1688,7 @@ export async function getMyPositions({ force = false, silent = false, wallet_add
           position:           positionAddress,
           pool:               pool.poolAddress,
           pair:               tracked?.pool_name || `${pool.tokenX}/${pool.tokenY}`,
-          pool_tvl:           pool.liquidity ?? null,
+          pool_tvl:           tvlByPool[pool.poolAddress] ?? pool.liquidity ?? null,
           amount_sol:         tracked?.amount_sol ?? null,
           base_mint:          pool.tokenXMint,
           lower_bin:          lowerBin,
