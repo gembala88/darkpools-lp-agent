@@ -128,7 +128,7 @@ const _peakPnl = new Map(); // position → peak pnl_pct seen past maxHold (for 
 const MAX_HOLD_HARD_CAP_MULTIPLIER = 4;
 const TRAILING_PEAK_CONFIRM_DELAY_MS = 15_000;
 const TRAILING_PEAK_CONFIRM_TOLERANCE = 0.85;
-const TRAILING_DROP_CONFIRM_DELAY_MS = 15_000;
+const TRAILING_DROP_CONFIRM_DELAY_MS = 3_000;
 const TRAILING_DROP_CONFIRM_TOLERANCE_PCT = 1.0;
 
 /** Strip <think>...</think> reasoning blocks and raw JSON tool calls that some models leak into output */
