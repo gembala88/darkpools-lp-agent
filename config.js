@@ -22,7 +22,7 @@ function readJsonIfExists(filePath) {
 
 const u = readJsonIfExists(USER_CONFIG_PATH);
 const gmgnUserConfig = readJsonIfExists(GMGN_CONFIG_PATH);
-export const MIN_SAFE_BINS_BELOW = 35;
+export let MIN_SAFE_BINS_BELOW = Math.max(1, Math.round(numericConfig(u.minSafeBinsBelow) ?? 10));
 
 function numericConfig(value) {
   const n = Number(value);
@@ -581,6 +581,9 @@ export function reloadScreeningThresholds() {
     if (fresh.minAlphaScore        != null) config.risk.minAlphaScore        = fresh.minAlphaScore;
     if (fresh.maxSteps != null) config.llm.maxSteps = fresh.maxSteps;
     if (fresh.enableConfigManager !== undefined) config.enableConfigManager = fresh.enableConfigManager;
+    if (fresh.minSafeBinsBelow != null) {
+      MIN_SAFE_BINS_BELOW = Math.max(1, Math.round(numericConfig(fresh.minSafeBinsBelow)));
+    }
     const minBinsBelow = numericConfig(fresh.minBinsBelow) ?? config.strategy.minBinsBelow;
     const maxBinsBelow = numericConfig(fresh.maxBinsBelow) ?? numericConfig(fresh.binsBelow) ?? config.strategy.maxBinsBelow;
     const defaultBinsBelow = numericConfig(fresh.defaultBinsBelow) ?? numericConfig(fresh.binsBelow) ?? config.strategy.defaultBinsBelow ?? maxBinsBelow;
